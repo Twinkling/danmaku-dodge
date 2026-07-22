@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>弹幕躲避</title>
     <style>
         * {
@@ -14,18 +14,24 @@
         html, body {
             width: 100%;
             height: 100%;
+            height: -webkit-fill-available;
             overflow: hidden;
             background: #0a0a0a;
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, Arial, sans-serif;
             touch-action: none;
             user-select: none;
             -webkit-user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
         }
         canvas {
             display: block;
             position: fixed;
             top: 0;
             left: 0;
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
@@ -35,31 +41,50 @@
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
 
-        let W, H; // 画布逻辑尺寸
-        let dpr = window.devicePixelRatio || 1;
+        // 核心尺寸变量
+        let displayWidth = 0;   // CSS显示宽度
+        let displayHeight = 0;  // CSS显示高度
+        let dpr = 1;            // 设备像素比
 
-        // ---- 高清适配：处理设备像素比 ----
-        function resizeCanvas() {
+        function setupCanvas() {
+            // 1. 获取设备像素比
             dpr = window.devicePixelRatio || 1;
+            // 限制最大像素比，防止性能问题（一般手机最多3x）
+            if (dpr > 3) dpr = 3;
 
-            // 画布占满整个窗口
-            W = window.innerWidth;
-            H = window.innerHeight;
+            // 2. 获取实际可用的屏幕尺寸
+            displayWidth = window.innerWidth;
+            displayHeight = window.innerHeight;
 
-            // 设置画布物理像素尺寸（解决模糊）
-            canvas.width = W * dpr;
-            canvas.height = H * dpr;
+            // 3. 设置canvas物理像素尺寸（这是关键，必须乘以dpr）
+            canvas.width = Math.floor(displayWidth * dpr);
+            canvas.height = Math.floor(displayHeight * dpr);
 
-            // 设置画布 CSS 显示尺寸（占满屏幕）
-            canvas.style.width = W + 'px';
-            canvas.style.height = H + 'px';
+            // 4. CSS尺寸由样式表控制（100%），这里强制同步一次
+            canvas.style.width = displayWidth + 'px';
+            canvas.style.height = displayHeight + 'px';
 
-            // 缩放绘图上下文，让所有绘制命令使用逻辑坐标
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            // 5. 重置变换矩阵，然后缩放
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.scale(dpr, dpr);
+
+            // 6. 设置图像平滑（对像素游戏可以关闭）
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
         }
 
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        // 初始化
+        setupCanvas();
+
+        // 监听变化
+        window.addEventListener('resize', () => {
+            setupCanvas();
+        });
+
+        // 监听屏幕旋转（移动端）
+        window.addEventListener('orientationchange', () => {
+            setTimeout(setupCanvas, 100);
+        });
 
         // ---- 游戏状态 ----
         const player = {
@@ -76,53 +101,42 @@
         let bestScore = 0;
 
         try {
-            bestScore = parseInt(localStorage.getItem('dodgeBestScore')) || 0;
+            bestScore = parseInt(localStorage.getItem('dodgeBestScoreV2')) || 0;
         } catch(e) {
             bestScore = 0;
         }
 
-        let mouseX = 0;
-        let mouseY = 0;
+        let pointerX = 0;
+        let pointerY = 0;
         let pointerActive = false;
 
         let spawnTimer = 0;
-        let spawnDelay = 30;
+        let spawnDelay = 28;
         let scoreTimer = 0;
         let shakeAmount = 0;
 
         // ---- 输入处理 ----
-        function getPos(e) {
+        function updatePointerPosition(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
-            let clientX, clientY;
-            if (e.touches && e.touches.length > 0) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-            } else if (e.changedTouches && e.changedTouches.length > 0) {
-                clientX = e.changedTouches[0].clientX;
-                clientY = e.changedTouches[0].clientY;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
-            }
-            return {
-                x: clientX - rect.left,
-                y: clientY - rect.top
-            };
+            // 计算在CSS显示区域内的相对位置（0-1范围）
+            const relativeX = (clientX - rect.left) / rect.width;
+            const relativeY = (clientY - rect.top) / rect.height;
+            // 转换为逻辑坐标
+            pointerX = relativeX * displayWidth;
+            pointerY = relativeY * displayHeight;
         }
 
         canvas.addEventListener('mousemove', (e) => {
-            const pos = getPos(e);
-            mouseX = pos.x;
-            mouseY = pos.y;
+            updatePointerPosition(e.clientX, e.clientY);
             pointerActive = true;
         });
 
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            const pos = getPos(e);
-            mouseX = pos.x;
-            mouseY = pos.y;
-            pointerActive = true;
+            if (e.touches.length > 0) {
+                updatePointerPosition(e.touches[0].clientX, e.touches[0].clientY);
+                pointerActive = true;
+            }
         }, { passive: false });
 
         canvas.addEventListener('touchend', () => {
@@ -143,17 +157,33 @@
                 startGame();
             }
         }
+
         canvas.addEventListener('click', handleStart);
-        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        canvas.addEventListener('touchstart', (e) => {
+            handleStart(e);
+            // 同时更新初始位置
+            if (e.touches.length > 0) {
+                updatePointerPosition(e.touches[0].clientX, e.touches[0].clientY);
+                pointerActive = true;
+            }
+        }, { passive: false });
 
         // ---- 游戏逻辑 ----
         function startGame() {
+            // 确保画布尺寸是最新的
+            if (displayWidth !== window.innerWidth || displayHeight !== window.innerHeight) {
+                setupCanvas();
+            }
+
+            const W = displayWidth;
+            const H = displayHeight;
+
             player.x = W / 2;
             player.y = H / 2;
-            mouseX = W / 2;
-            mouseY = H / 2;
-            // 玩家大小基于屏幕尺寸
-            player.size = Math.max(6, Math.min(W, H) * 0.015);
+            pointerX = W / 2;
+            pointerY = H / 2;
+            player.size = Math.max(8, Math.min(W, H) * 0.018);
+
             enemies = [];
             particles = [];
             score = 0;
@@ -166,42 +196,44 @@
         }
 
         function spawnEnemy() {
+            const W = displayWidth;
+            const H = displayHeight;
             const side = Math.floor(Math.random() * 4);
             let x, y;
-            const margin = Math.min(W, H) * 0.04;
+            const margin = Math.min(W, H) * 0.05;
+
             if (side === 0)      { x = Math.random() * W; y = -margin; }
             else if (side === 1) { x = W + margin; y = Math.random() * H; }
             else if (side === 2) { x = Math.random() * W; y = H + margin; }
             else                 { x = -margin; y = Math.random() * H; }
 
-            const dx = player.x - x + (Math.random() - 0.5) * Math.min(W, H) * 0.2;
-            const dy = player.y - y + (Math.random() - 0.5) * Math.min(W, H) * 0.2;
+            const dx = player.x - x + (Math.random() - 0.5) * Math.min(W, H) * 0.25;
+            const dy = player.y - y + (Math.random() - 0.5) * Math.min(W, H) * 0.25;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const baseSpeed = Math.min(W, H) * 0.005;
+            const baseSpeed = Math.min(W, H) * 0.006;
             const speed = baseSpeed + Math.random() * baseSpeed * 1.5;
 
             enemies.push({
-                x: x,
-                y: y,
+                x, y,
                 vx: (dx / dist) * speed,
                 vy: (dy / dist) * speed,
-                size: Math.min(W, H) * 0.008 + Math.random() * Math.min(W, H) * 0.014,
-                color: `hsl(${Math.random() * 360}, 75%, 55%)`
+                size: Math.min(W, H) * 0.01 + Math.random() * Math.min(W, H) * 0.016,
+                color: `hsl(${Math.random() * 360}, 80%, 55%)`
             });
         }
 
         function createParticles(x, y, count) {
-            const baseSpeed = Math.min(W, H) * 0.003;
+            const baseSize = Math.min(displayWidth, displayHeight);
+            const baseSpeed = baseSize * 0.004;
             for (let i = 0; i < count; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = baseSpeed + Math.random() * baseSpeed * 3;
                 particles.push({
-                    x: x,
-                    y: y,
+                    x, y,
                     vx: Math.cos(angle) * speed,
                     vy: Math.sin(angle) * speed,
                     life: 1,
-                    size: Math.min(W, H) * 0.004 + Math.random() * Math.min(W, H) * 0.008
+                    size: baseSize * 0.005 + Math.random() * baseSize * 0.01
                 });
             }
         }
@@ -209,31 +241,31 @@
         function update() {
             if (!gameRunning) return;
 
-            // 平滑跟随指针
+            const W = displayWidth;
+            const H = displayHeight;
+
             if (pointerActive) {
-                player.x += (mouseX - player.x) * 0.2;
-                player.y += (mouseY - player.y) * 0.2;
+                player.x += (pointerX - player.x) * 0.22;
+                player.y += (pointerY - player.y) * 0.22;
             }
 
             const pad = player.size;
             player.x = Math.max(pad, Math.min(W - pad, player.x));
             player.y = Math.max(pad, Math.min(H - pad, player.y));
 
-            // 生成敌人
             spawnTimer++;
             if (spawnTimer >= spawnDelay) {
                 spawnTimer = 0;
                 spawnEnemy();
-                if (spawnDelay > 5) spawnDelay -= 0.25;
+                if (spawnDelay > 5) spawnDelay -= 0.22;
             }
 
-            // 更新敌人
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
                 e.x += e.vx;
                 e.y += e.vy;
 
-                const margin = Math.max(W, H) * 0.15;
+                const margin = Math.max(W, H) * 0.2;
                 if (e.x < -margin || e.x > W + margin || e.y < -margin || e.y > H + margin) {
                     enemies.splice(i, 1);
                     continue;
@@ -243,18 +275,7 @@
                 const dy = player.y - e.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < player.size + e.size) {
-                    gameRunning = false;
-                    gameOver = true;
-                    shakeAmount = Math.min(W, H) * 0.025;
-                    createParticles(player.x, player.y, 30);
-
-                    const finalScore = Math.floor(score);
-                    if (finalScore > bestScore) {
-                        bestScore = finalScore;
-                        try {
-                            localStorage.setItem('dodgeBestScore', bestScore);
-                        } catch(e) {}
-                    }
+                    endGame();
                     return;
                 }
             }
@@ -265,7 +286,6 @@
                 score++;
             }
 
-            // 粒子
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i];
                 p.x += p.vx;
@@ -280,27 +300,45 @@
             }
         }
 
+        function endGame() {
+            gameRunning = false;
+            gameOver = true;
+            shakeAmount = Math.min(displayWidth, displayHeight) * 0.03;
+            createParticles(player.x, player.y, 35);
+
+            const finalScore = Math.floor(score);
+            if (finalScore > bestScore) {
+                bestScore = finalScore;
+                try {
+                    localStorage.setItem('dodgeBestScoreV2', bestScore);
+                } catch(e) {}
+            }
+        }
+
         function draw() {
+            const W = displayWidth;
+            const H = displayHeight;
+
+            // 清屏
             ctx.fillStyle = '#0d0d0d';
             ctx.fillRect(0, 0, W, H);
 
-            // 网格
+            // 细网格背景
             const gridSize = Math.min(W, H) / 14;
             ctx.strokeStyle = '#1a1a1a';
-            ctx.lineWidth = Math.max(0.5, dpr * 0.5);
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
             for (let x = gridSize; x < W; x += gridSize) {
-                ctx.beginPath();
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, H);
-                ctx.stroke();
             }
             for (let y = gridSize; y < H; y += gridSize) {
-                ctx.beginPath();
                 ctx.moveTo(0, y);
                 ctx.lineTo(W, y);
-                ctx.stroke();
             }
+            ctx.stroke();
 
+            // 震动偏移
             let sx = 0, sy = 0;
             if (shakeAmount > 0) {
                 sx = (Math.random() - 0.5) * shakeAmount * 2;
@@ -317,15 +355,15 @@
                 ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
                 ctx.fill();
                 // 高光
-                ctx.fillStyle = 'rgba(255,255,255,0.25)';
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
                 ctx.beginPath();
-                ctx.arc(e.x - e.size * 0.2, e.y - e.size * 0.2, e.size * 0.35, 0, Math.PI * 2);
+                ctx.arc(e.x - e.size * 0.25, e.y - e.size * 0.25, e.size * 0.35, 0, Math.PI * 2);
                 ctx.fill();
             }
 
             // 粒子
             for (const p of particles) {
-                ctx.fillStyle = `rgba(255, 130, 60, ${p.life})`;
+                ctx.fillStyle = `rgba(255, 140, 70, ${p.life})`;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
                 ctx.fill();
@@ -334,86 +372,91 @@
             // 玩家
             if (gameRunning) {
                 const s = player.size;
+                // 光晕
+                ctx.fillStyle = 'rgba(0, 220, 255, 0.3)';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, s * 1.6, 0, Math.PI * 2);
+                ctx.fill();
+                // 主体
                 ctx.fillStyle = '#00ddff';
-                ctx.shadowColor = '#00ddff';
-                ctx.shadowBlur = s * 1.8;
                 ctx.fillRect(player.x - s, player.y - s, s * 2, s * 2);
-                // 内高光
-                ctx.fillStyle = 'rgba(255,255,255,0.45)';
-                ctx.fillRect(player.x - s * 0.5, player.y - s * 0.5, s, s);
-                ctx.shadowBlur = 0;
+                // 高光
+                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.fillRect(player.x - s * 0.45, player.y - s * 0.45, s * 0.9, s * 0.9);
             }
 
             ctx.restore();
 
-            // UI
-            const fontSize = Math.max(13, Math.min(W, H) * 0.045);
+            // ---- UI层 ----
+            const fontSize = Math.max(14, Math.min(W, H) * 0.05);
             const padding = Math.min(W, H) * 0.04;
 
+            // 分数
             ctx.fillStyle = '#ffffff';
-            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.font = `bold ${fontSize}px -apple-system, Arial, sans-serif`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
             ctx.fillText(Math.floor(score) + ' 秒', padding, padding);
 
+            // 最高分
             ctx.fillStyle = '#999';
-            ctx.font = `${fontSize * 0.6}px Arial`;
+            ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'top';
             ctx.fillText('最高: ' + bestScore + ' 秒', W - padding, padding);
 
-            // 结束画面
+            // 游戏结束覆盖层
             if (gameOver && score > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
                 ctx.fillRect(0, 0, W, H);
 
                 const cx = W / 2;
                 const cy = H / 2;
 
                 ctx.fillStyle = '#ff4444';
-                ctx.font = `bold ${fontSize * 1.6}px Arial`;
+                ctx.font = `bold ${fontSize * 1.5}px -apple-system, Arial, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('游戏结束', cx, cy - fontSize * 1.5);
+                ctx.fillText('游戏结束', cx, cy - fontSize * 1.4);
 
-                ctx.fillStyle = '#fff';
-                ctx.font = `${fontSize * 0.9}px Arial`;
-                ctx.fillText('坚持了 ' + Math.floor(score) + ' 秒', cx, cy - fontSize * 0.2);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `${fontSize * 0.85}px -apple-system, Arial, sans-serif`;
+                ctx.fillText('坚持了 ' + Math.floor(score) + ' 秒', cx, cy - fontSize * 0.15);
 
                 if (Math.floor(score) >= bestScore && bestScore > 0) {
                     ctx.fillStyle = '#ffcc00';
-                    ctx.font = `bold ${fontSize * 0.8}px Arial`;
+                    ctx.font = `bold ${fontSize * 0.75}px -apple-system, Arial, sans-serif`;
                     ctx.fillText('🏆 新纪录！', cx, cy + fontSize * 0.8);
                 }
 
-                ctx.fillStyle = '#aaa';
-                ctx.font = `${fontSize * 0.6}px Arial`;
+                ctx.fillStyle = '#aaaaaa';
+                ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
                 const blink = 0.5 + 0.5 * Math.sin(Date.now() / 600);
                 ctx.globalAlpha = blink;
-                ctx.fillText('点击画面重新开始', cx, cy + fontSize * 1.8);
+                ctx.fillText('点击画面重新开始', cx, cy + fontSize * 1.7);
                 ctx.globalAlpha = 1;
             }
 
+            // 初始画面
             if (gameOver && score === 0) {
                 const cx = W / 2;
                 const cy = H / 2;
 
-                ctx.fillStyle = '#fff';
-                ctx.font = `bold ${fontSize * 1.2}px Arial`;
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${fontSize * 1.1}px -apple-system, Arial, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('弹幕躲避', cx, cy - fontSize);
+                ctx.fillText('弹幕躲避', cx, cy - fontSize * 0.8);
 
-                ctx.fillStyle = '#aaa';
-                ctx.font = `${fontSize * 0.6}px Arial`;
+                ctx.fillStyle = '#aaaaaa';
+                ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
                 ctx.fillText('移动鼠标 / 滑动屏幕躲避彩色球', cx, cy + fontSize * 0.5);
+
                 const blink = 0.5 + 0.5 * Math.sin(Date.now() / 600);
                 ctx.globalAlpha = blink;
-                ctx.fillText('点击开始游戏', cx, cy + fontSize * 1.5);
+                ctx.fillText('点击开始游戏', cx, cy + fontSize * 1.4);
                 ctx.globalAlpha = 1;
             }
-
-            ctx.textBaseline = 'alphabetic';
         }
 
         function gameLoop() {
@@ -422,13 +465,7 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // 初始调用一次，确保 player.size 等有值
-        W = window.innerWidth;
-        H = window.innerHeight;
-        player.size = Math.max(6, Math.min(W, H) * 0.015);
-        mouseX = W / 2;
-        mouseY = H / 2;
-
+        // 启动
         gameLoop();
     </script>
 </body>
