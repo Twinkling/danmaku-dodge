@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>弹幕躲避</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background: #0a0a0a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+
+        // 自适应画布大小
+        function resizeCanvas() {
+            const size = Math.min(window.innerWidth, window.innerHeight) * 0.95;
+            canvas.width = size;
+            canvas.height = size;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // 用变量引用方便
+        let W, H;
+
+        const player = {
+            x: 0,
+            y: 0,
+            size: 8
+        };
+
+        let enemies = [];
+        let particles = [];
+        let score = 0;
+        let gameRunning = false;
+        let gameOver = true;
+        let bestScore = 0;
+
+        try {
+            bestScore = parseInt(localStorage.getItem('dodgeBestScore')) || 0;
+        } catch(e) {
+            bestScore = 0;
+        }
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let pointerActive = false;
+
+        let spawnTimer = 0;
+        let spawnDelay = 30;
+        let scoreTimer = 0;
+
+        let shakeAmount = 0;
+
+        // ---- 统一处理鼠标和触摸 ----
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            pointerActive = true;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const pos = getPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            pointerActive = true;
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => {
+            pointerActive = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            pointerActive = false;
+        });
+
+        // 点击/触摸开始
+        function handleStart(e) {
+            e.preventDefault();
+            if (gameOver) {
+                startGame();
+            }
+        }
+        canvas.addEventListener('click', handleStart);
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+
+        function startGame() {
+            W = canvas.width;
+            H = canvas.height;
+            player.x = W / 2;
+            player.y = H / 2;
+            mouseX = W / 2;
+            mouseY = H / 2;
+            player.size = Math.max(6, W * 0.015);
+            enemies = [];
+            particles = [];
+            score = 0;
+            spawnTimer = 0;
+            spawnDelay = 30;
+            scoreTimer = 0;
+            shakeAmount = 0;
+            gameRunning = true;
+            gameOver = false;
+        }
+
+        function spawnEnemy() {
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            const margin = W * 0.04;
+            if (side === 0) { x = Math.random() * W; y = -margin; }
+            else if (side === 1) { x = W + margin; y = Math.random() * H; }
+            else if (side === 2) { x = Math.random() * W; y = H + margin; }
+            else { x = -margin; y = Math.random() * H; }
+
+            const dx = player.x - x + (Math.random() - 0.5) * W * 0.15;
+            const dy = player.y - y + (Math.random() - 0.5) * H * 0.15;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const speed = W * 0.004 + Math.random() * W * 0.006;
+
+            enemies.push({
+                x: x,
+                y: y,
+                vx: (dx / dist) * speed,
+                vy: (dy / dist) * speed,
+                size: W * 0.008 + Math.random() * W * 0.012,
+                color: `hsl(${Math.random() * 360}, 70%, 55%)`
+            });
+        }
+
+        function createParticles(x, y, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = W * 0.002 + Math.random() * W * 0.01;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1,
+                    size: W * 0.004 + Math.random() * W * 0.006
+                });
+            }
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            // 平滑跟随
+            if (pointerActive) {
+                player.x += (mouseX - player.x) * 0.18;
+                player.y += (mouseY - player.y) * 0.18;
+            }
+
+            // 边界
+            const pad = player.size;
+            player.x = Math.max(pad, Math.min(W - pad, player.x));
+            player.y = Math.max(pad, Math.min(H - pad, player.y));
+
+            // 生成敌人
+            spawnTimer++;
+            if (spawnTimer >= spawnDelay) {
+                spawnTimer = 0;
+                spawnEnemy();
+                if (spawnDelay > 6) spawnDelay -= 0.3;
+            }
+
+            // 更新敌人
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.x += e.vx;
+                e.y += e.vy;
+
+                if (e.x < -W * 0.2 || e.x > W * 1.2 || e.y < -H * 0.2 || e.y > H * 1.2) {
+                    enemies.splice(i, 1);
+                    continue;
+                }
+
+                const dx = player.x - e.x;
+                const dy = player.y - e.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < player.size + e.size) {
+                    gameRunning = false;
+                    gameOver = true;
+                    shakeAmount = W * 0.02;
+                    createParticles(player.x, player.y, 25);
+
+                    const finalScore = Math.floor(score);
+                    if (finalScore > bestScore) {
+                        bestScore = finalScore;
+                        try {
+                            localStorage.setItem('dodgeBestScore', bestScore);
+                        } catch(e) {}
+                    }
+                }
+            }
+
+            // 分数
+            scoreTimer++;
+            if (scoreTimer >= 60) {
+                scoreTimer = 0;
+                score++;
+            }
+
+            // 粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.025;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            if (shakeAmount > 0) {
+                shakeAmount *= 0.88;
+                if (shakeAmount < 0.1) shakeAmount = 0;
+            }
+        }
+
+        function draw() {
+            W = canvas.width;
+            H = canvas.height;
+
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, W, H);
+
+            // 网格
+            const gridSize = W / 15;
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 0.5;
+            for (let x = 0; x < W; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, H);
+                ctx.stroke();
+            }
+            for (let y = 0; y < H; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(W, y);
+                ctx.stroke();
+            }
+
+            let sx = 0, sy = 0;
+            if (shakeAmount > 0) {
+                sx = (Math.random() - 0.5) * shakeAmount * 2;
+                sy = (Math.random() - 0.5) * shakeAmount * 2;
+            }
+
+            ctx.save();
+            ctx.translate(sx, sy);
+
+            // 敌人
+            for (const e of enemies) {
+                ctx.fillStyle = e.color;
+                ctx.beginPath();
+                ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 粒子
+            for (const p of particles) {
+                ctx.fillStyle = `rgba(255, 120, 60, ${p.life})`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 玩家
+            if (gameRunning) {
+                ctx.fillStyle = '#00ccff';
+                ctx.shadowColor = '#00ccff';
+                ctx.shadowBlur = W * 0.025;
+                const s = player.size;
+                ctx.fillRect(player.x - s, player.y - s, s * 2, s * 2);
+                ctx.shadowBlur = 0;
+            }
+
+            ctx.restore();
+
+            // 分数文字（字号自适应）
+            const fontSize = Math.max(14, W * 0.045);
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.fillText(Math.floor(score) + ' 秒', W * 0.04, H * 0.08);
+
+            ctx.fillStyle = '#888';
+            ctx.font = `${fontSize * 0.6}px Arial`;
+            ctx.textAlign = 'right';
+            ctx.fillText('最高: ' + bestScore + ' 秒', W * 0.96, H * 0.06);
+
+            // 结束画面
+            if (gameOver && score > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.fillStyle = '#ff4444';
+                ctx.font = `bold ${fontSize * 1.5}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.fillText('游戏结束', W/2, H/2 - H * 0.06);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = `${fontSize * 0.85}px Arial`;
+                ctx.fillText('坚持了 ' + Math.floor(score) + ' 秒', W/2, H/2 + H * 0.02);
+
+                if (Math.floor(score) >= bestScore && bestScore > 0) {
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.font = `bold ${fontSize * 0.75}px Arial`;
+                    ctx.fillText('新纪录！', W/2, H/2 + H * 0.08);
+                }
+
+                ctx.fillStyle = '#aaa';
+                ctx.font = `${fontSize * 0.6}px Arial`;
+                ctx.fillText('点击画面重新开始', W/2, H/2 + H * 0.15);
+                ctx.textAlign = 'left';
+            }
+
+            if (gameOver && score === 0) {
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${fontSize * 1.1}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.fillText('弹幕躲避', W/2, H/2 - H * 0.04);
+
+                ctx.fillStyle = '#aaa';
+                ctx.font = `${fontSize * 0.6}px Arial`;
+                ctx.fillText('滑动屏幕躲避彩色球', W/2, H/2 + H * 0.04);
+                ctx.fillText('点击开始游戏', W/2, H/2 + H * 0.1);
+                ctx.textAlign = 'left';
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
