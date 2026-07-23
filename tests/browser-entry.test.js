@@ -672,8 +672,16 @@ test('保护期绘制倒计时和额外光环并在三秒后消失', () => {
   assert.ok(texts.includes('准备 2'));
 
   environment.context.calls.length = 0;
+  game.getState().elapsed = 2.1;
+  environment.runNextFrame(32);
+  texts = environment.context.calls
+    .filter(([method]) => method === 'fillText')
+    .map(([, text]) => text);
+  assert.ok(texts.includes('准备 1'));
+
+  environment.context.calls.length = 0;
   game.getState().elapsed = 3;
-  environment.runNextFrame(34);
+  environment.runNextFrame(48);
   texts = environment.context.calls
     .filter(([method]) => method === 'fillText')
     .map(([, text]) => text);
