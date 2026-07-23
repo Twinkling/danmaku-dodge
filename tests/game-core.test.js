@@ -1,7 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createGameState, startGame } from '../src/game-core.js';
+import {
+  FIXED_STEP,
+  advanceGame,
+  createGameState,
+  startGame,
+  stepGame,
+} from '../src/game-core.js';
+
+const keyboardRight = {
+  mode: 'keyboard',
+  left: false,
+  right: true,
+  up: false,
+  down: false,
+  pointerActive: false,
+};
+
+function simulateAtRate(rate) {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+
+  for (let frame = 0; frame < rate; frame += 1) {
+    advanceGame(state, 1 / rate, keyboardRight, () => 0.5);
+  }
+
+  return state;
+}
 
 test('createGameState 初始化空闲状态并规范化最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: -4 });
@@ -72,4 +98,28 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.equal(state.bestScore, 15);
   assert.equal(state.bestScoreAtStart, 15);
   assert.equal(state.isNewRecord, false);
+});
+
+test('固定时间步长让不同刷新率的一秒模拟保持一致', () => {
+  const at60 = simulateAtRate(60);
+  const at120 = simulateAtRate(120);
+  const at144 = simulateAtRate(144);
+
+  assert.ok(Math.abs(at60.elapsed - 1) <= FIXED_STEP);
+  assert.ok(Math.abs(at60.elapsed - at120.elapsed) <= FIXED_STEP);
+  assert.ok(Math.abs(at60.elapsed - at144.elapsed) <= FIXED_STEP);
+  assert.ok(Math.abs(at120.elapsed - at144.elapsed) <= FIXED_STEP);
+  assert.ok(Math.abs(at60.player.x - at120.player.x) < 0.001);
+  assert.ok(Math.abs(at60.player.x - at144.player.x) < 0.001);
+  assert.ok(Math.abs(at120.player.x - at144.player.x) < 0.001);
+});
+
+test('玩家移动始终限制在游戏边界内', () => {
+  const state = createGameState({ width: 320, height: 240 });
+  startGame(state);
+  state.player.x = state.width - state.player.size;
+
+  stepGame(state, 1, keyboardRight, () => 0.5);
+
+  assert.equal(state.player.x, state.width - state.player.size);
 });
