@@ -4,6 +4,7 @@ export const MAX_STEPS_PER_FRAME = 6;
 export const INITIAL_SPAWN_INTERVAL = 28 / 60;
 export const MIN_SPAWN_INTERVAL = 5 / 60;
 export const SPAWN_INTERVAL_DECREASE = 0.22 / 60;
+export const OPENING_PROTECTION_SECONDS = 3;
 
 const KEYBOARD_SPEED_FACTOR = 0.65;
 const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
@@ -11,6 +12,59 @@ const MAX_LOGICAL_DIMENSION = 100_000;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function interpolate(value, start, end, from, to) {
+  const progress = clamp((value - start) / (end - start), 0, 1);
+  return from + (to - from) * progress;
+}
+
+export function getDifficulty(elapsedSeconds) {
+  const elapsed =
+    Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0 ? elapsedSeconds : 0;
+
+  if (elapsed < OPENING_PROTECTION_SECONDS) {
+    return {
+      protected: true,
+      spawnInterval: Number.POSITIVE_INFINITY,
+      speedMultiplier: 0,
+      enemyCap: 0,
+    };
+  }
+
+  if (elapsed < 20) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 3, 20, 1.4, 0.9),
+      speedMultiplier: interpolate(elapsed, 3, 20, 0.45, 0.7),
+      enemyCap: 6,
+    };
+  }
+
+  if (elapsed < 55) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 20, 55, 0.9, 0.55),
+      speedMultiplier: interpolate(elapsed, 20, 55, 0.7, 1),
+      enemyCap: 12,
+    };
+  }
+
+  if (elapsed < 90) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 55, 90, 0.55, 0.32),
+      speedMultiplier: interpolate(elapsed, 55, 90, 1, 1.3),
+      enemyCap: 18,
+    };
+  }
+
+  return {
+    protected: false,
+    spawnInterval: 0.32,
+    speedMultiplier: 1.3,
+    enemyCap: 18,
+  };
 }
 
 function clampPlayerAxis(value, size, extent) {

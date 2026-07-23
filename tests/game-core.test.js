@@ -5,9 +5,11 @@ import {
   FIXED_STEP,
   INITIAL_SPAWN_INTERVAL,
   MIN_SPAWN_INTERVAL,
+  OPENING_PROTECTION_SECONDS,
   SPAWN_INTERVAL_DECREASE,
   advanceGame,
   createGameState,
+  getDifficulty,
   resizeGame,
   startGame,
   stepGame,
@@ -58,6 +60,63 @@ function assertSpatialStateIsFinite(state) {
   }
   assert.equal(Number.isFinite(state.shake), true);
 }
+
+test('OPENING_PROTECTION_SECONDS 定义为 3 秒', () => {
+  assert.equal(OPENING_PROTECTION_SECONDS, 3);
+});
+
+test('getDifficulty 按时间返回连续分段难度', () => {
+  const cases = [
+    [0, true, Number.POSITIVE_INFINITY, 0, 0],
+    [2.999, true, Number.POSITIVE_INFINITY, 0, 0],
+    [3, false, 1.4, 0.45, 6],
+    [11.5, false, 1.15, 0.575, 6],
+    [20, false, 0.9, 0.7, 12],
+    [37.5, false, 0.725, 0.85, 12],
+    [55, false, 0.55, 1, 18],
+    [72.5, false, 0.435, 1.15, 18],
+    [90, false, 0.32, 1.3, 18],
+    [300, false, 0.32, 1.3, 18],
+  ];
+
+  for (const [
+    elapsedSeconds,
+    expectedProtected,
+    expectedSpawnInterval,
+    expectedSpeedMultiplier,
+    expectedEnemyCap,
+  ] of cases) {
+    const difficulty = getDifficulty(elapsedSeconds);
+
+    assert.deepEqual(Object.keys(difficulty), [
+      'protected',
+      'spawnInterval',
+      'speedMultiplier',
+      'enemyCap',
+    ]);
+    assert.equal(difficulty.protected, expectedProtected);
+    if (Number.isFinite(expectedSpawnInterval)) {
+      assertClose(difficulty.spawnInterval, expectedSpawnInterval);
+    } else {
+      assert.equal(difficulty.spawnInterval, expectedSpawnInterval);
+    }
+    assertClose(difficulty.speedMultiplier, expectedSpeedMultiplier);
+    assert.equal(difficulty.enemyCap, expectedEnemyCap);
+  }
+});
+
+test('getDifficulty 将负数和非有限输入按 0 秒处理', () => {
+  const protectionStart = getDifficulty(0);
+
+  for (const elapsedSeconds of [
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ]) {
+    assert.deepEqual(getDifficulty(elapsedSeconds), protectionStart);
+  }
+});
 
 test('createGameState 初始化空闲状态并规范化最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: -4 });
