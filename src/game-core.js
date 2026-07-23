@@ -50,6 +50,134 @@ function updatePlayer(state, deltaTime, input) {
   );
 }
 
+function spawnEnemy(state, random) {
+  const shortEdge = Math.min(state.width, state.height);
+  const margin = shortEdge * 0.05;
+  const side = Math.floor(random() * 4);
+  let x;
+  let y;
+
+  if (side === 0) {
+    x = random() * state.width;
+    y = -margin;
+  } else if (side === 1) {
+    x = state.width + margin;
+    y = random() * state.height;
+  } else if (side === 2) {
+    x = random() * state.width;
+    y = state.height + margin;
+  } else {
+    x = -margin;
+    y = random() * state.height;
+  }
+
+  const dx =
+    state.player.x - x + (random() - 0.5) * shortEdge * 0.25;
+  const dy =
+    state.player.y - y + (random() - 0.5) * shortEdge * 0.25;
+  const distance = Math.hypot(dx, dy) || 1;
+  const baseSpeed = shortEdge * 0.006 * 60;
+  const speed = baseSpeed + random() * baseSpeed * 1.5;
+
+  state.enemies.push({
+    x,
+    y,
+    vx: (dx / distance) * speed,
+    vy: (dy / distance) * speed,
+    size: shortEdge * (0.01 + random() * 0.016),
+    color: `hsl(${random() * 360}, 80%, 55%)`,
+  });
+}
+
+function createParticles(state, random, count = 35) {
+  const shortEdge = Math.min(state.width, state.height);
+  const baseSpeed = shortEdge * 0.004 * 60;
+
+  for (let index = 0; index < count; index += 1) {
+    const angle = random() * Math.PI * 2;
+    const speed = baseSpeed + random() * baseSpeed * 3;
+
+    state.particles.push({
+      x: state.player.x,
+      y: state.player.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      size: shortEdge * (0.005 + random() * 0.01),
+    });
+  }
+}
+
+function endGame(state, random) {
+  state.phase = 'gameover';
+  state.finalScore = Math.floor(state.elapsed);
+  state.isNewRecord = state.finalScore > state.bestScoreAtStart;
+
+  if (state.isNewRecord) {
+    state.bestScore = state.finalScore;
+  }
+
+  state.shake = Math.min(state.width, state.height) * 0.03;
+  createParticles(state, random);
+}
+
+function updateEnemies(state, deltaTime, random) {
+  state.spawnElapsed += deltaTime;
+
+  if (state.spawnElapsed >= state.spawnInterval) {
+    state.spawnElapsed -= state.spawnInterval;
+    spawnEnemy(state, random);
+    state.spawnInterval = Math.max(
+      MIN_SPAWN_INTERVAL,
+      state.spawnInterval - SPAWN_INTERVAL_DECREASE,
+    );
+  }
+
+  const margin = Math.max(state.width, state.height) * 0.2;
+
+  for (let index = state.enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = state.enemies[index];
+    enemy.x += enemy.vx * deltaTime;
+    enemy.y += enemy.vy * deltaTime;
+
+    if (
+      enemy.x < -margin ||
+      enemy.x > state.width + margin ||
+      enemy.y < -margin ||
+      enemy.y > state.height + margin
+    ) {
+      state.enemies.splice(index, 1);
+    } else if (
+      Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y) <
+      state.player.size + enemy.size
+    ) {
+      endGame(state, random);
+      return;
+    }
+  }
+}
+
+function updateEffects(state, deltaTime) {
+  for (let index = state.particles.length - 1; index >= 0; index -= 1) {
+    const particle = state.particles[index];
+    particle.x += particle.vx * deltaTime;
+    particle.y += particle.vy * deltaTime;
+    particle.life -= 1.5 * deltaTime;
+
+    if (particle.life <= 0) {
+      state.particles.splice(index, 1);
+    }
+  }
+
+  if (state.shake > 0) {
+    state.shake *= Math.pow(0.87, deltaTime * 60);
+
+    if (state.shake < 0.05) {
+      state.shake = 0;
+    }
+  }
+}
+
 export function sanitizeBestScore(value) {
   const numericValue =
     typeof value === 'number'
@@ -119,15 +247,17 @@ export function startGame(state) {
   return state;
 }
 
-export function stepGame(state, deltaTime, input, random = Math.random) {
-  if (state.phase !== 'running') {
-    return state;
+export function stepGame(state, deltaTime, input = {}, random = Math.random) {
+  const safeDeltaTime =
+    Number.isFinite(deltaTime) && deltaTime >= 0 ? deltaTime : 0;
+
+  if (state.phase === 'running') {
+    updatePlayer(state, safeDeltaTime, input);
+    state.elapsed += safeDeltaTime;
+    updateEnemies(state, safeDeltaTime, random);
   }
 
-  const validDeltaTime =
-    Number.isFinite(deltaTime) && deltaTime >= 0 ? deltaTime : 0;
-  updatePlayer(state, validDeltaTime, input);
-  state.elapsed += validDeltaTime;
+  updateEffects(state, safeDeltaTime);
 
   return state;
 }
