@@ -26,7 +26,7 @@
 - Create: `tests/game-core.test.js`
 - Create: `src/game-core.js`
 
-- [ ] **Step 1: 创建零依赖测试命令**
+- [x] **Step 1: 创建零依赖测试命令**
 
 ```json
 {
@@ -40,7 +40,7 @@
 }
 ```
 
-- [ ] **Step 2: 编写初始状态和重新开局的失败测试**
+- [x] **Step 2: 编写初始状态和重新开局的失败测试**
 
 ```js
 import test from 'node:test';
@@ -87,13 +87,13 @@ test('开始新一局时会重置瞬态字段并保留最高分', () => {
 });
 ```
 
-- [ ] **Step 3: 运行测试并确认因核心模块缺失而失败**
+- [x] **Step 3: 运行测试并确认因核心模块缺失而失败**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: FAIL，并包含 `ERR_MODULE_NOT_FOUND`。
 
-- [ ] **Step 4: 实现最小状态模型**
+- [x] **Step 4: 实现最小状态模型**
 
 ```js
 export const FIXED_STEP = 1 / 60;
@@ -160,13 +160,13 @@ export function startGame(state) {
 }
 ```
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: PASS，2 tests passed。
 
-- [ ] **Step 6: 提交核心状态**
+- [x] **Step 6: 提交核心状态**
 
 ```bash
 git add package.json src/game-core.js tests/game-core.test.js
@@ -179,7 +179,7 @@ git commit -m "feat(core): 建立可测试的游戏状态模型"
 - Modify: `tests/game-core.test.js`
 - Modify: `src/game-core.js`
 
-- [ ] **Step 1: 编写不同刷新率结果一致的失败测试**
+- [x] **Step 1: 编写不同刷新率结果一致的失败测试**
 
 ```js
 import {
@@ -234,13 +234,13 @@ test('玩家会被限制在游戏边界内', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认缺少推进函数**
+- [x] **Step 2: 运行测试并确认缺少推进函数**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: FAIL，并指出 `advanceGame` 或 `stepGame` 未导出。
 
-- [ ] **Step 3: 实现固定步长与时间无关玩家移动**
+- [x] **Step 3: 实现固定步长与时间无关玩家移动**
 
 ```js
 export const MAX_FRAME_TIME = 0.1;
@@ -298,13 +298,13 @@ export function advanceGame(state, elapsedTime, input, random = Math.random) {
 }
 ```
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: PASS，4 tests passed。
 
-- [ ] **Step 5: 提交时间步长与控制逻辑**
+- [x] **Step 5: 提交时间步长与控制逻辑**
 
 ```bash
 git add src/game-core.js tests/game-core.test.js
@@ -317,7 +317,7 @@ git commit -m "feat(core): 使用固定时间步长推进玩家状态"
 - Modify: `tests/game-core.test.js`
 - Modify: `src/game-core.js`
 
-- [ ] **Step 1: 编写碰撞、纪录和特效的失败测试**
+- [x] **Step 1: 编写碰撞、纪录和特效的失败测试**
 
 将测试文件的核心模块 import 列表补充为：
 
@@ -401,13 +401,13 @@ test('刷怪间隔会降低但不会突破下限', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认游戏仍不会发生碰撞和特效**
+- [x] **Step 2: 运行测试并确认游戏仍不会发生碰撞和特效**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: FAIL，`phase` 仍为 `running` 或未生成粒子。
 
-- [ ] **Step 3: 实现敌人生成、碰撞、纪录和特效**
+- [x] **Step 3: 实现敌人生成、碰撞、纪录和特效**
 
 在 `src/game-core.js` 增加并从 `stepGame` 调用以下函数：
 
@@ -524,13 +524,13 @@ export function stepGame(state, deltaTime, input = {}, random = Math.random) {
 }
 ```
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: PASS，8 tests passed。
 
-- [ ] **Step 5: 提交核心玩法规则**
+- [x] **Step 5: 提交核心玩法规则**
 
 ```bash
 git add src/game-core.js tests/game-core.test.js
@@ -543,7 +543,7 @@ git commit -m "fix(core): 统一刷怪碰撞与结束特效时序"
 - Modify: `tests/game-core.test.js`
 - Modify: `src/game-core.js`
 
-- [ ] **Step 1: 编写尺寸迁移的失败测试**
+- [x] **Step 1: 编写尺寸迁移的失败测试**
 
 在测试文件的核心模块 import 列表加入 `resizeGame`：
 
@@ -588,13 +588,13 @@ test('尺寸变化会按比例迁移坐标、尺寸和速度', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认 `resizeGame` 缺失**
+- [x] **Step 2: 运行测试并确认 `resizeGame` 缺失**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: FAIL，并指出 `resizeGame` 未导出。
 
-- [ ] **Step 3: 实现尺寸迁移**
+- [x] **Step 3: 实现尺寸迁移**
 
 ```js
 export function resizeGame(state, width, height) {
@@ -629,13 +629,13 @@ export function resizeGame(state, width, height) {
 }
 ```
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run: `npm test -- tests/game-core.test.js`
 
 Expected: PASS，9 tests passed。
 
-- [ ] **Step 5: 提交尺寸迁移**
+- [x] **Step 5: 提交尺寸迁移**
 
 ```bash
 git add src/game-core.js tests/game-core.test.js
@@ -648,13 +648,13 @@ git commit -m "fix(core): 在画布变化时迁移游戏状态"
 - Create: `src/game.js`
 - Modify: `index.html`
 
-- [ ] **Step 1: 先运行完整检查并确认浏览器入口尚不存在**
+- [x] **Step 1: 先运行完整检查并确认浏览器入口尚不存在**
 
 Run: `npm run check`
 
 Expected: FAIL，`node --check src/game.js` 报告文件不存在。
 
-- [ ] **Step 2: 将 `index.html` 改为轻量页面外壳**
+- [x] **Step 2: 将 `index.html` 改为轻量页面外壳**
 
 使用以下完整页面：
 
@@ -729,7 +729,7 @@ Expected: FAIL，`node --check src/game.js` 报告文件不存在。
 </html>
 ```
 
-- [ ] **Step 3: 实现浏览器适配层**
+- [x] **Step 3: 实现浏览器适配层**
 
 创建以下完整 `src/game.js`：
 
@@ -1026,13 +1026,13 @@ if (!context) {
 }
 ```
 
-- [ ] **Step 4: 运行语法与单元检查**
+- [x] **Step 4: 运行语法与单元检查**
 
 Run: `npm run check`
 
 Expected: PASS，语法检查退出码 0，9 tests passed。
 
-- [ ] **Step 5: 提交浏览器界面**
+- [x] **Step 5: 提交浏览器界面**
 
 ```bash
 git add index.html src/game.js
@@ -1045,7 +1045,7 @@ git commit -m "feat(ui): 接入多输入与无障碍游戏界面"
 - Create: `README.md`
 - Modify: `docs/superpowers/plans/2026-07-23-game-stability.md`
 
-- [ ] **Step 1: 编写 README**
+- [x] **Step 1: 编写 README**
 
 README 必须包含以下实际命令和说明：
 
@@ -1080,13 +1080,13 @@ npm run check
 仓库不需要构建。将 `index.html` 和 `src/` 原样部署到任意静态文件服务，保持目录结构不变即可。
 ````
 
-- [ ] **Step 2: 运行完整自动化检查**
+- [x] **Step 2: 运行完整自动化检查**
 
 Run: `npm run check`
 
 Expected: PASS，退出码 0，9 tests passed，0 failed。
 
-- [ ] **Step 3: 启动静态服务器并验证 HTTP**
+- [x] **Step 3: 启动静态服务器并验证 HTTP**
 
 Run: `python3 -m http.server 4173 --bind 127.0.0.1`
 
@@ -1096,7 +1096,7 @@ Run: `curl -sS -I http://127.0.0.1:4173/`
 
 Expected: 包含 `200 OK` 和 `Content-type: text/html`。
 
-- [ ] **Step 4: 执行浏览器回归**
+- [x] **Step 4: 执行浏览器回归**
 
 在受控浏览器中完成以下检查并记录结果：
 
@@ -1107,21 +1107,29 @@ Expected: 包含 `200 OK` 和 `Content-type: text/html`。
 - 390×844：初始页文字完整、Canvas 与视口一致。
 - 页面控制台没有 error 或 warning。
 
-- [ ] **Step 5: 更新计划勾选状态并检查工作区**
+- [x] **Step 5: 更新计划勾选状态并检查工作区**
 
 Run: `git diff --check && git status --short`
 
 Expected: `git diff --check` 无输出；状态只包含 README 和已勾选的计划文档。
 
-- [ ] **Step 6: 提交文档与验证记录**
+- [x] **Step 6: 提交文档与验证记录**
 
 ```bash
 git add README.md docs/superpowers/plans/2026-07-23-game-stability.md
 git commit -m "docs: 补充游戏运行测试与部署说明"
 ```
 
-- [ ] **Step 7: 最终复核**
+- [x] **Step 7: 最终复核**
 
 Run: `npm run check && git status --short --branch`
 
 Expected: 自动化检查全部通过，工作区干净，当前分支只领先远端本次设计和实现提交。
+
+## 验证记录
+
+- `npm run check` 通过，42/42 项测试成功，0 项失败。
+- 真实浏览器桌面视口（1280×720）已验证：点击开始、Enter 重新开始、Canvas 焦点、鼠标跟随、游戏结束和最高分流程均正常。
+- 真实浏览器移动端视口（390×844）已验证：Canvas 尺寸与视口匹配，DPR 为 1，`touch-action` 为 `pinch-zoom`，首屏布局正常。
+- 多触点仲裁由可执行的浏览器入口行为测试覆盖；真实物理设备上的双指缩放未直接模拟。
+- 本地 HTTP 服务验证成功：`/`、`/src/game.js` 和 `/src/game-core.js` 均返回 200。
