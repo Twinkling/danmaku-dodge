@@ -7,6 +7,7 @@ export const SPAWN_INTERVAL_DECREASE = 0.22 / 60;
 
 const KEYBOARD_SPEED_FACTOR = 0.65;
 const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
+const MAX_LOGICAL_DIMENSION = 100_000;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -201,7 +202,9 @@ export function playerSize(width, height) {
 }
 
 function sanitizeDimension(value) {
-  return Number.isFinite(value) && value >= 1 ? value : 1;
+  return Number.isFinite(value) && value >= 1
+    ? Math.min(value, MAX_LOGICAL_DIMENSION)
+    : 1;
 }
 
 export function createGameState({ width, height, bestScore = 0 }) {

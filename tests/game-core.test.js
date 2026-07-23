@@ -13,6 +13,8 @@ import {
   stepGame,
 } from '../src/game-core.js';
 
+const MAX_LOGICAL_DIMENSION = 100_000;
+
 const keyboardRight = {
   mode: 'keyboard',
   left: false,
@@ -101,6 +103,17 @@ test('createGameState 将极小正数尺寸规范为安全最小值', () => {
 
   resizeGame(state, 1, 1);
 
+  assertSpatialStateIsFinite(state);
+});
+
+test('createGameState 将超大尺寸限制到逻辑上界', () => {
+  const state = createGameState({
+    width: Number.MAX_VALUE,
+    height: Number.MAX_VALUE,
+  });
+
+  assert.equal(state.width, MAX_LOGICAL_DIMENSION);
+  assert.equal(state.height, MAX_LOGICAL_DIMENSION);
   assertSpatialStateIsFinite(state);
 });
 
@@ -252,6 +265,66 @@ test('resizeGame 往返极小正数尺寸时始终保持空间状态有限', () 
   }
 });
 
+test('resizeGame 从最小尺寸放大到逻辑上界时空间状态保持有限', () => {
+  const state = createGameState({ width: 1, height: 1 });
+  state.enemies.push({
+    x: 1,
+    y: 1,
+    vx: 2,
+    vy: 2,
+    size: 2,
+    color: '',
+  });
+  state.particles.push({
+    x: 1,
+    y: 1,
+    vx: 2,
+    vy: 2,
+    size: 2,
+    life: 1,
+  });
+  state.shake = 2;
+
+  resizeGame(state, Number.MAX_VALUE, Number.MAX_VALUE);
+
+  assert.equal(state.width, MAX_LOGICAL_DIMENSION);
+  assert.equal(state.height, MAX_LOGICAL_DIMENSION);
+  assertSpatialStateIsFinite(state);
+});
+
+test('resizeGame 往返超大尺寸时始终保持空间状态有限', () => {
+  const state = createGameState({ width: 320, height: 240 });
+  state.enemies.push({
+    x: 80,
+    y: 60,
+    vx: 1000,
+    vy: 800,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 160,
+    y: 120,
+    vx: 900,
+    vy: 700,
+    size: 6,
+    life: 1,
+  });
+  state.shake = 1000;
+
+  resizeGame(state, Number.MAX_VALUE, Number.MAX_VALUE);
+
+  assert.equal(state.width, MAX_LOGICAL_DIMENSION);
+  assert.equal(state.height, MAX_LOGICAL_DIMENSION);
+  assertSpatialStateIsFinite(state);
+
+  resizeGame(state, 320, 240);
+
+  assert.equal(state.width, 320);
+  assert.equal(state.height, 240);
+  assertSpatialStateIsFinite(state);
+});
+
 test('resizeGame 原地更新实体并保持生命周期状态', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: 9 });
   startGame(state);
@@ -348,14 +421,17 @@ test('resizeGame 重复应用同一尺寸不会累积空间状态误差', () => 
 
   assertClose(state.player.x, 200);
   assertClose(state.player.y, 150);
+  assertClose(state.player.size, 10.8);
   assertClose(state.enemies[0].x, 100);
   assertClose(state.enemies[0].y, 90);
   assertClose(state.enemies[0].vx, 120);
   assertClose(state.enemies[0].vy, 60);
+  assertClose(state.enemies[0].size, 12);
   assertClose(state.particles[0].x, 300);
   assertClose(state.particles[0].y, 200);
   assertClose(state.particles[0].vx, 30);
   assertClose(state.particles[0].vy, 15);
+  assertClose(state.particles[0].size, 6);
   assertClose(state.shake, 12);
 });
 
@@ -386,14 +462,17 @@ test('resizeGame 横竖尺寸往返不会累积空间状态误差', () => {
 
   assertClose(state.player.x, 200);
   assertClose(state.player.y, 150);
+  assertClose(state.player.size, 10.8);
   assertClose(state.enemies[0].x, 100);
   assertClose(state.enemies[0].y, 90);
   assertClose(state.enemies[0].vx, 120);
   assertClose(state.enemies[0].vy, 60);
+  assertClose(state.enemies[0].size, 12);
   assertClose(state.particles[0].x, 300);
   assertClose(state.particles[0].y, 200);
   assertClose(state.particles[0].vx, 30);
   assertClose(state.particles[0].vy, 15);
+  assertClose(state.particles[0].size, 6);
   assertClose(state.shake, 12);
 });
 
