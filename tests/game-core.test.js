@@ -8,6 +8,7 @@ import {
   SPAWN_INTERVAL_DECREASE,
   advanceGame,
   createGameState,
+  resizeGame,
   startGame,
   stepGame,
 } from '../src/game-core.js';
@@ -106,6 +107,150 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.equal(state.bestScore, 15);
   assert.equal(state.bestScoreAtStart, 15);
   assert.equal(state.isNewRecord, false);
+});
+
+test('resizeGame 按新旧画布比例迁移空间状态', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.player.x = 200;
+  state.player.y = 150;
+  state.enemies.push({
+    x: 100,
+    y: 90,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 300,
+    y: 200,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+  state.shake = 12;
+
+  resizeGame(state, 400, 300);
+
+  assert.equal(state.width, 400);
+  assert.equal(state.height, 300);
+  assert.deepEqual(state.player, { x: 100, y: 75, size: 8 });
+  assert.deepEqual(state.enemies[0], {
+    x: 50,
+    y: 45,
+    vx: 60,
+    vy: 30,
+    size: 6,
+    color: '',
+  });
+  assert.deepEqual(state.particles[0], {
+    x: 150,
+    y: 100,
+    vx: 15,
+    vy: 7.5,
+    size: 3,
+    life: 1,
+  });
+  assert.equal(state.shake, 6);
+});
+
+test('resizeGame 将非法或极小目标尺寸规范为有限的最小状态', () => {
+  const state = createGameState({ width: 320, height: 240 });
+  state.enemies.push({
+    x: 80,
+    y: 60,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 160,
+    y: 120,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+
+  resizeGame(state, 0, Number.POSITIVE_INFINITY);
+
+  assert.equal(state.width, 1);
+  assert.equal(state.height, 1);
+  assert.equal(state.player.x, 0.5);
+  assert.equal(state.player.y, 0.5);
+  for (const field of ['x', 'y', 'size']) {
+    assert.equal(Number.isFinite(state.player[field]), true);
+  }
+  for (const entity of [...state.enemies, ...state.particles]) {
+    for (const field of ['x', 'y', 'vx', 'vy', 'size']) {
+      assert.equal(Number.isFinite(entity[field]), true);
+    }
+  }
+});
+
+test('resizeGame 原地更新实体并保持生命周期状态', () => {
+  const state = createGameState({ width: 800, height: 600, bestScore: 9 });
+  startGame(state);
+  state.elapsed = 8.25;
+  state.spawnElapsed = 0.12;
+  state.spawnInterval = 0.31;
+  state.finalScore = 8;
+  state.bestScore = 9;
+  state.bestScoreAtStart = 9;
+  state.isNewRecord = true;
+  state.accumulator = 0.007;
+  state.enemies.push({
+    x: 100,
+    y: 90,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 300,
+    y: 200,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+  const enemies = state.enemies;
+  const particles = state.particles;
+  const lifecycle = {
+    phase: state.phase,
+    elapsed: state.elapsed,
+    spawnElapsed: state.spawnElapsed,
+    spawnInterval: state.spawnInterval,
+    finalScore: state.finalScore,
+    bestScore: state.bestScore,
+    bestScoreAtStart: state.bestScoreAtStart,
+    isNewRecord: state.isNewRecord,
+    accumulator: state.accumulator,
+  };
+
+  const result = resizeGame(state, 640, 480);
+
+  assert.strictEqual(result, state);
+  assert.strictEqual(state.enemies, enemies);
+  assert.strictEqual(state.particles, particles);
+  assert.deepEqual(
+    {
+      phase: state.phase,
+      elapsed: state.elapsed,
+      spawnElapsed: state.spawnElapsed,
+      spawnInterval: state.spawnInterval,
+      finalScore: state.finalScore,
+      bestScore: state.bestScore,
+      bestScoreAtStart: state.bestScoreAtStart,
+      isNewRecord: state.isNewRecord,
+      accumulator: state.accumulator,
+    },
+    lifecycle,
+  );
 });
 
 test('固定时间步长让不同刷新率的一秒模拟保持一致', () => {

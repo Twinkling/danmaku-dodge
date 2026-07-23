@@ -233,6 +233,51 @@ export function createGameState({ width, height, bestScore = 0 }) {
   };
 }
 
+export function resizeGame(state, width, height) {
+  const safeWidth = sanitizeDimension(width);
+  const safeHeight = sanitizeDimension(height);
+  const xRatio = safeWidth / state.width;
+  const yRatio = safeHeight / state.height;
+  const sizeRatio =
+    Math.min(safeWidth, safeHeight) / Math.min(state.width, state.height);
+
+  state.player.x *= xRatio;
+  state.player.y *= yRatio;
+  state.player.size = playerSize(safeWidth, safeHeight);
+
+  for (const enemy of state.enemies) {
+    enemy.x *= xRatio;
+    enemy.y *= yRatio;
+    enemy.vx *= sizeRatio;
+    enemy.vy *= sizeRatio;
+    enemy.size *= sizeRatio;
+  }
+
+  for (const particle of state.particles) {
+    particle.x *= xRatio;
+    particle.y *= yRatio;
+    particle.vx *= sizeRatio;
+    particle.vy *= sizeRatio;
+    particle.size *= sizeRatio;
+  }
+
+  state.shake *= sizeRatio;
+  state.width = safeWidth;
+  state.height = safeHeight;
+  state.player.x = clampPlayerAxis(
+    state.player.x,
+    state.player.size,
+    state.width,
+  );
+  state.player.y = clampPlayerAxis(
+    state.player.y,
+    state.player.size,
+    state.height,
+  );
+
+  return state;
+}
+
 export function startGame(state) {
   state.phase = 'running';
   state.accumulator = 0;
