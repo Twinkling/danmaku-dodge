@@ -1,6 +1,7 @@
 import {
   advanceGame,
   createGameState,
+  OPENING_PROTECTION_SECONDS,
   resizeGame,
   sanitizeBestScore,
   startGame,
@@ -351,6 +352,14 @@ export function createBrowserGame({
   function drawPlayer() {
     const { x, y, size } = state.player;
 
+    if (state.elapsed < OPENING_PROTECTION_SECONDS) {
+      const pulse = 1 + Math.sin(Date.now() / 120) * 0.08;
+      context.fillStyle = 'rgba(0, 220, 255, 0.16)';
+      context.beginPath();
+      context.arc(x, y, size * 2.35 * pulse, 0, Math.PI * 2);
+      context.fill();
+    }
+
     context.fillStyle = 'rgba(0, 220, 255, 0.3)';
     context.beginPath();
     context.arc(x, y, size * 1.6, 0, Math.PI * 2);
@@ -486,6 +495,20 @@ export function createBrowserGame({
     context.globalAlpha = 1;
   }
 
+  function drawReadyOverlay(metrics) {
+    const seconds = Math.ceil(OPENING_PROTECTION_SECONDS - state.elapsed);
+    if (seconds <= 0) return;
+    context.fillStyle = 'rgba(255, 255, 255, 0.82)';
+    context.font = `bold ${metrics.fontSize * 0.8}px -apple-system, Arial, sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(
+      `准备 ${seconds}`,
+      metrics.centerX,
+      metrics.centerY - metrics.fontSize * 2,
+    );
+  }
+
   function drawOverlay(metrics) {
     context.save();
     context.globalAlpha = 1;
@@ -494,6 +517,11 @@ export function createBrowserGame({
       drawIdleOverlay(metrics);
     } else if (state.phase === 'gameover') {
       drawGameOverOverlay(metrics);
+    } else if (
+      state.phase === 'running' &&
+      state.elapsed < OPENING_PROTECTION_SECONDS
+    ) {
+      drawReadyOverlay(metrics);
     }
 
     context.globalAlpha = 1;

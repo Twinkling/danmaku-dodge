@@ -645,6 +645,46 @@ test('localStorage 读写抛错时初始化和游戏循环继续运行', async (
   assert.equal(state.phase, 'gameover');
 });
 
+test('保护期绘制倒计时和额外光环并在三秒后消失', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  environment.runNextFrame(0);
+  let texts = environment.context.calls
+    .filter(([method]) => method === 'fillText')
+    .map(([, text]) => text);
+  let arcs = environment.context.calls.filter(
+    ([method]) => method === 'arc',
+  );
+  assert.ok(texts.includes('准备 3'));
+  assert.equal(arcs.length, 2);
+
+  environment.context.calls.length = 0;
+  game.getState().elapsed = 1.1;
+  environment.runNextFrame(16);
+  texts = environment.context.calls
+    .filter(([method]) => method === 'fillText')
+    .map(([, text]) => text);
+  assert.ok(texts.includes('准备 2'));
+
+  environment.context.calls.length = 0;
+  game.getState().elapsed = 3;
+  environment.runNextFrame(34);
+  texts = environment.context.calls
+    .filter(([method]) => method === 'fillText')
+    .map(([, text]) => text);
+  arcs = environment.context.calls.filter(([method]) => method === 'arc');
+  assert.equal(
+    texts.some((text) => text.startsWith('准备 ')),
+    false,
+  );
+  assert.equal(arcs.length, 1);
+});
+
 test('正常 Canvas 桩可执行空闲、运行与结束渲染路径', async () => {
   const environment = createEnvironment();
   const game = createBrowserGame({
