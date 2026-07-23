@@ -18,8 +18,13 @@ const keyboardRight = {
   pointerActive: false,
 };
 
+const noInput = {
+  ...keyboardRight,
+  right: false,
+};
+
 function simulateAtRate(rate) {
-  const state = createGameState({ width: 800, height: 600 });
+  const state = createGameState({ width: 1600, height: 600 });
   startGame(state);
 
   for (let frame = 0; frame < rate; frame += 1) {
@@ -122,4 +127,160 @@ test('玩家移动始终限制在游戏边界内', () => {
   stepGame(state, 1, keyboardRight, () => 0.5);
 
   assert.equal(state.player.x, state.width - state.player.size);
+});
+
+test('指针目标缺失或非有限时整次忽略移动', () => {
+  const invalidPointerInputs = [
+    { mode: 'pointer', pointerActive: true, pointerX: 600 },
+    { mode: 'pointer', pointerActive: true, pointerY: 500 },
+    { mode: 'pointer', pointerActive: true, pointerX: Number.NaN, pointerY: 500 },
+    {
+      mode: 'pointer',
+      pointerActive: true,
+      pointerX: 600,
+      pointerY: Number.POSITIVE_INFINITY,
+    },
+  ];
+
+  for (const input of invalidPointerInputs) {
+    const state = createGameState({ width: 800, height: 600 });
+    startGame(state);
+    const initialX = state.player.x;
+    const initialY = state.player.y;
+
+    stepGame(state, FIXED_STEP, input, () => 0.5);
+
+    assert.equal(Number.isFinite(state.player.x), true);
+    assert.equal(Number.isFinite(state.player.y), true);
+    assert.equal(state.player.x, initialX);
+    assert.equal(state.player.y, initialY);
+  }
+});
+
+test('stepGame 忽略非有限或负数时间', () => {
+  const invalidDeltaTimes = [
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    -FIXED_STEP,
+  ];
+
+  for (const deltaTime of invalidDeltaTimes) {
+    const state = createGameState({ width: 800, height: 600 });
+    startGame(state);
+    const initialX = state.player.x;
+    const initialY = state.player.y;
+
+    stepGame(state, deltaTime, keyboardRight, () => 0.5);
+
+    assert.equal(state.elapsed, 0);
+    assert.equal(state.player.x, initialX);
+    assert.equal(state.player.y, initialY);
+  }
+});
+
+test('无法容纳玩家直径的轴固定在画布中心', () => {
+  const state = createGameState({ width: 1, height: 1 });
+  startGame(state);
+
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+
+  assert.equal(state.player.x, 0.5);
+  assert.equal(state.player.y, 0.5);
+});
+
+test('advanceGame 累积两个半步后恰好推进一个固定步长', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  const initialX = state.player.x;
+
+  advanceGame(state, FIXED_STEP / 2, keyboardRight, () => 0.5);
+
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.player.x, initialX);
+
+  advanceGame(state, FIXED_STEP / 2, keyboardRight, () => 0.5);
+
+  assert.ok(Math.abs(state.elapsed - FIXED_STEP) < 1e-12);
+  assert.equal(state.accumulator, 0);
+  assert.ok(state.player.x > initialX);
+});
+
+test('advanceGame 达到最大步数后丢弃剩余积压', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.accumulator = FIXED_STEP;
+
+  advanceGame(state, 1, noInput, () => 0.5);
+
+  assert.ok(Math.abs(state.elapsed - 0.1) < 1e-12);
+  assert.equal(state.accumulator, 0);
+});
+
+test('非运行阶段冻结 stepGame 的时间和玩家位置', () => {
+  for (const phase of ['idle', 'gameover']) {
+    const state = createGameState({ width: 800, height: 600 });
+    state.phase = phase;
+    const initialX = state.player.x;
+    const initialY = state.player.y;
+
+    stepGame(state, FIXED_STEP, keyboardRight, () => 0.5);
+
+    assert.equal(state.elapsed, 0);
+    assert.equal(state.player.x, initialX);
+    assert.equal(state.player.y, initialY);
+  }
+});
+
+test('键盘斜向移动与单轴移动速度一致', () => {
+  const axisState = createGameState({ width: 1600, height: 600 });
+  const diagonalState = createGameState({ width: 1600, height: 600 });
+  startGame(axisState);
+  startGame(diagonalState);
+  const axisStart = { x: axisState.player.x, y: axisState.player.y };
+  const diagonalStart = {
+    x: diagonalState.player.x,
+    y: diagonalState.player.y,
+  };
+
+  stepGame(axisState, FIXED_STEP, keyboardRight, () => 0.5);
+  stepGame(
+    diagonalState,
+    FIXED_STEP,
+    { ...keyboardRight, down: true },
+    () => 0.5,
+  );
+
+  const axisDistance = Math.hypot(
+    axisState.player.x - axisStart.x,
+    axisState.player.y - axisStart.y,
+  );
+  const diagonalDistance = Math.hypot(
+    diagonalState.player.x - diagonalStart.x,
+    diagonalState.player.y - diagonalStart.y,
+  );
+  assert.ok(Math.abs(axisDistance - diagonalDistance) < 1e-12);
+});
+
+test('指针模式每个固定步长跟随约百分之二十二的剩余距离', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  const initialX = state.player.x;
+  const targetX = 600;
+
+  stepGame(
+    state,
+    FIXED_STEP,
+    {
+      mode: 'pointer',
+      pointerActive: true,
+      pointerX: targetX,
+      pointerY: state.player.y,
+    },
+    () => 0.5,
+  );
+
+  const expectedDistance = (targetX - initialX) * 0.22;
+  assert.ok(Math.abs(state.player.x - initialX - expectedDistance) < 1e-12);
+  assert.equal(state.player.y, 300);
 });

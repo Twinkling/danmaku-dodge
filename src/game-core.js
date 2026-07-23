@@ -12,6 +12,10 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function clampPlayerAxis(value, size, extent) {
+  return extent <= 2 * size ? extent / 2 : clamp(value, size, extent - size);
+}
+
 function updatePlayer(state, deltaTime, input) {
   if (input?.mode === 'keyboard') {
     const horizontal = Number(Boolean(input.right)) - Number(Boolean(input.left));
@@ -23,21 +27,26 @@ function updatePlayer(state, deltaTime, input) {
       state.player.x += (horizontal / directionLength) * speed * deltaTime;
       state.player.y += (vertical / directionLength) * speed * deltaTime;
     }
-  } else if (input?.mode === 'pointer' && input.pointerActive) {
+  } else if (
+    input?.mode === 'pointer' &&
+    input.pointerActive &&
+    Number.isFinite(input.pointerX) &&
+    Number.isFinite(input.pointerY)
+  ) {
     const alpha = 1 - Math.exp(-POINTER_FOLLOW_RATE * deltaTime);
     state.player.x += (input.pointerX - state.player.x) * alpha;
     state.player.y += (input.pointerY - state.player.y) * alpha;
   }
 
-  state.player.x = clamp(
+  state.player.x = clampPlayerAxis(
     state.player.x,
     state.player.size,
-    state.width - state.player.size,
+    state.width,
   );
-  state.player.y = clamp(
+  state.player.y = clampPlayerAxis(
     state.player.y,
     state.player.size,
-    state.height - state.player.size,
+    state.height,
   );
 }
 
@@ -115,8 +124,10 @@ export function stepGame(state, deltaTime, input, random = Math.random) {
     return state;
   }
 
-  updatePlayer(state, deltaTime, input);
-  state.elapsed += deltaTime;
+  const validDeltaTime =
+    Number.isFinite(deltaTime) && deltaTime >= 0 ? deltaTime : 0;
+  updatePlayer(state, validDeltaTime, input);
+  state.elapsed += validDeltaTime;
 
   return state;
 }
