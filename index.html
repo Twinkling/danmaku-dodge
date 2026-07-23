@@ -3,15 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="使用鼠标、触摸或键盘躲避彩色弹幕球。">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2064%2064%22%3E%3Crect%20width=%2264%22%20height=%2264%22%20rx=%2212%22%20fill=%22%230a0a0a%22/%3E%3Ccircle%20cx=%2245%22%20cy=%2219%22%20r=%229%22%20fill=%22%23ff4d7d%22/%3E%3Crect%20x=%2215%22%20y=%2233%22%20width=%2218%22%20height=%2218%22%20fill=%22%2300ddff%22/%3E%3C/svg%3E">
     <title>弹幕躲避</title>
     <style>
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
         }
-        html, body {
+
+        html,
+        body {
+            position: fixed;
+            inset: 0;
             width: 100%;
             height: 100%;
             height: -webkit-fill-available;
@@ -21,452 +28,43 @@
             touch-action: none;
             user-select: none;
             -webkit-user-select: none;
-            position: fixed;
-            top: 0;
-            left: 0;
         }
+
         canvas {
-            display: block;
             position: fixed;
-            top: 0;
-            left: 0;
+            inset: 0;
+            display: block;
             width: 100%;
             height: 100%;
+            touch-action: none;
+        }
+
+        canvas:focus {
+            outline: none;
+        }
+
+        canvas:focus-visible {
+            outline: none;
+            box-shadow: inset 0 0 0 2px #00ddff;
+        }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
     </style>
 </head>
 <body>
-    <canvas id="game"></canvas>
-    <script>
-        const canvas = document.getElementById('game');
-        const ctx = canvas.getContext('2d');
-
-        // 核心尺寸变量
-        let displayWidth = 0;   // CSS显示宽度
-        let displayHeight = 0;  // CSS显示高度
-        let dpr = 1;            // 设备像素比
-
-        function setupCanvas() {
-            // 1. 获取设备像素比
-            dpr = window.devicePixelRatio || 1;
-            // 限制最大像素比，防止性能问题（一般手机最多3x）
-            if (dpr > 3) dpr = 3;
-
-            // 2. 获取实际可用的屏幕尺寸
-            displayWidth = window.innerWidth;
-            displayHeight = window.innerHeight;
-
-            // 3. 设置canvas物理像素尺寸（这是关键，必须乘以dpr）
-            canvas.width = Math.floor(displayWidth * dpr);
-            canvas.height = Math.floor(displayHeight * dpr);
-
-            // 4. CSS尺寸由样式表控制（100%），这里强制同步一次
-            canvas.style.width = displayWidth + 'px';
-            canvas.style.height = displayHeight + 'px';
-
-            // 5. 重置变换矩阵，然后缩放
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.scale(dpr, dpr);
-
-            // 6. 设置图像平滑（对像素游戏可以关闭）
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-        }
-
-        // 初始化
-        setupCanvas();
-
-        // 监听变化
-        window.addEventListener('resize', () => {
-            setupCanvas();
-        });
-
-        // 监听屏幕旋转（移动端）
-        window.addEventListener('orientationchange', () => {
-            setTimeout(setupCanvas, 100);
-        });
-
-        // ---- 游戏状态 ----
-        const player = {
-            x: 0,
-            y: 0,
-            size: 0
-        };
-
-        let enemies = [];
-        let particles = [];
-        let score = 0;
-        let gameRunning = false;
-        let gameOver = true;
-        let bestScore = 0;
-
-        try {
-            bestScore = parseInt(localStorage.getItem('dodgeBestScoreV2')) || 0;
-        } catch(e) {
-            bestScore = 0;
-        }
-
-        let pointerX = 0;
-        let pointerY = 0;
-        let pointerActive = false;
-
-        let spawnTimer = 0;
-        let spawnDelay = 28;
-        let scoreTimer = 0;
-        let shakeAmount = 0;
-
-        // ---- 输入处理 ----
-        function updatePointerPosition(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            // 计算在CSS显示区域内的相对位置（0-1范围）
-            const relativeX = (clientX - rect.left) / rect.width;
-            const relativeY = (clientY - rect.top) / rect.height;
-            // 转换为逻辑坐标
-            pointerX = relativeX * displayWidth;
-            pointerY = relativeY * displayHeight;
-        }
-
-        canvas.addEventListener('mousemove', (e) => {
-            updatePointerPosition(e.clientX, e.clientY);
-            pointerActive = true;
-        });
-
-        canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            if (e.touches.length > 0) {
-                updatePointerPosition(e.touches[0].clientX, e.touches[0].clientY);
-                pointerActive = true;
-            }
-        }, { passive: false });
-
-        canvas.addEventListener('touchend', () => {
-            pointerActive = false;
-        });
-
-        canvas.addEventListener('touchcancel', () => {
-            pointerActive = false;
-        });
-
-        canvas.addEventListener('mouseleave', () => {
-            pointerActive = false;
-        });
-
-        function handleStart(e) {
-            e.preventDefault();
-            if (gameOver) {
-                startGame();
-            }
-        }
-
-        canvas.addEventListener('click', handleStart);
-        canvas.addEventListener('touchstart', (e) => {
-            handleStart(e);
-            // 同时更新初始位置
-            if (e.touches.length > 0) {
-                updatePointerPosition(e.touches[0].clientX, e.touches[0].clientY);
-                pointerActive = true;
-            }
-        }, { passive: false });
-
-        // ---- 游戏逻辑 ----
-        function startGame() {
-            // 确保画布尺寸是最新的
-            if (displayWidth !== window.innerWidth || displayHeight !== window.innerHeight) {
-                setupCanvas();
-            }
-
-            const W = displayWidth;
-            const H = displayHeight;
-
-            player.x = W / 2;
-            player.y = H / 2;
-            pointerX = W / 2;
-            pointerY = H / 2;
-            player.size = Math.max(8, Math.min(W, H) * 0.018);
-
-            enemies = [];
-            particles = [];
-            score = 0;
-            spawnTimer = 0;
-            spawnDelay = 28;
-            scoreTimer = 0;
-            shakeAmount = 0;
-            gameRunning = true;
-            gameOver = false;
-        }
-
-        function spawnEnemy() {
-            const W = displayWidth;
-            const H = displayHeight;
-            const side = Math.floor(Math.random() * 4);
-            let x, y;
-            const margin = Math.min(W, H) * 0.05;
-
-            if (side === 0)      { x = Math.random() * W; y = -margin; }
-            else if (side === 1) { x = W + margin; y = Math.random() * H; }
-            else if (side === 2) { x = Math.random() * W; y = H + margin; }
-            else                 { x = -margin; y = Math.random() * H; }
-
-            const dx = player.x - x + (Math.random() - 0.5) * Math.min(W, H) * 0.25;
-            const dy = player.y - y + (Math.random() - 0.5) * Math.min(W, H) * 0.25;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const baseSpeed = Math.min(W, H) * 0.006;
-            const speed = baseSpeed + Math.random() * baseSpeed * 1.5;
-
-            enemies.push({
-                x, y,
-                vx: (dx / dist) * speed,
-                vy: (dy / dist) * speed,
-                size: Math.min(W, H) * 0.01 + Math.random() * Math.min(W, H) * 0.016,
-                color: `hsl(${Math.random() * 360}, 80%, 55%)`
-            });
-        }
-
-        function createParticles(x, y, count) {
-            const baseSize = Math.min(displayWidth, displayHeight);
-            const baseSpeed = baseSize * 0.004;
-            for (let i = 0; i < count; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const speed = baseSpeed + Math.random() * baseSpeed * 3;
-                particles.push({
-                    x, y,
-                    vx: Math.cos(angle) * speed,
-                    vy: Math.sin(angle) * speed,
-                    life: 1,
-                    size: baseSize * 0.005 + Math.random() * baseSize * 0.01
-                });
-            }
-        }
-
-        function update() {
-            if (!gameRunning) return;
-
-            const W = displayWidth;
-            const H = displayHeight;
-
-            if (pointerActive) {
-                player.x += (pointerX - player.x) * 0.22;
-                player.y += (pointerY - player.y) * 0.22;
-            }
-
-            const pad = player.size;
-            player.x = Math.max(pad, Math.min(W - pad, player.x));
-            player.y = Math.max(pad, Math.min(H - pad, player.y));
-
-            spawnTimer++;
-            if (spawnTimer >= spawnDelay) {
-                spawnTimer = 0;
-                spawnEnemy();
-                if (spawnDelay > 5) spawnDelay -= 0.22;
-            }
-
-            for (let i = enemies.length - 1; i >= 0; i--) {
-                const e = enemies[i];
-                e.x += e.vx;
-                e.y += e.vy;
-
-                const margin = Math.max(W, H) * 0.2;
-                if (e.x < -margin || e.x > W + margin || e.y < -margin || e.y > H + margin) {
-                    enemies.splice(i, 1);
-                    continue;
-                }
-
-                const dx = player.x - e.x;
-                const dy = player.y - e.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < player.size + e.size) {
-                    endGame();
-                    return;
-                }
-            }
-
-            scoreTimer++;
-            if (scoreTimer >= 60) {
-                scoreTimer = 0;
-                score++;
-            }
-
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.025;
-                if (p.life <= 0) particles.splice(i, 1);
-            }
-
-            if (shakeAmount > 0) {
-                shakeAmount *= 0.87;
-                if (shakeAmount < 0.05) shakeAmount = 0;
-            }
-        }
-
-        function endGame() {
-            gameRunning = false;
-            gameOver = true;
-            shakeAmount = Math.min(displayWidth, displayHeight) * 0.03;
-            createParticles(player.x, player.y, 35);
-
-            const finalScore = Math.floor(score);
-            if (finalScore > bestScore) {
-                bestScore = finalScore;
-                try {
-                    localStorage.setItem('dodgeBestScoreV2', bestScore);
-                } catch(e) {}
-            }
-        }
-
-        function draw() {
-            const W = displayWidth;
-            const H = displayHeight;
-
-            // 清屏
-            ctx.fillStyle = '#0d0d0d';
-            ctx.fillRect(0, 0, W, H);
-
-            // 细网格背景
-            const gridSize = Math.min(W, H) / 14;
-            ctx.strokeStyle = '#1a1a1a';
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            for (let x = gridSize; x < W; x += gridSize) {
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, H);
-            }
-            for (let y = gridSize; y < H; y += gridSize) {
-                ctx.moveTo(0, y);
-                ctx.lineTo(W, y);
-            }
-            ctx.stroke();
-
-            // 震动偏移
-            let sx = 0, sy = 0;
-            if (shakeAmount > 0) {
-                sx = (Math.random() - 0.5) * shakeAmount * 2;
-                sy = (Math.random() - 0.5) * shakeAmount * 2;
-            }
-
-            ctx.save();
-            ctx.translate(sx, sy);
-
-            // 敌人
-            for (const e of enemies) {
-                ctx.fillStyle = e.color;
-                ctx.beginPath();
-                ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-                ctx.fill();
-                // 高光
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.beginPath();
-                ctx.arc(e.x - e.size * 0.25, e.y - e.size * 0.25, e.size * 0.35, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // 粒子
-            for (const p of particles) {
-                ctx.fillStyle = `rgba(255, 140, 70, ${p.life})`;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // 玩家
-            if (gameRunning) {
-                const s = player.size;
-                // 光晕
-                ctx.fillStyle = 'rgba(0, 220, 255, 0.3)';
-                ctx.beginPath();
-                ctx.arc(player.x, player.y, s * 1.6, 0, Math.PI * 2);
-                ctx.fill();
-                // 主体
-                ctx.fillStyle = '#00ddff';
-                ctx.fillRect(player.x - s, player.y - s, s * 2, s * 2);
-                // 高光
-                ctx.fillStyle = 'rgba(255,255,255,0.5)';
-                ctx.fillRect(player.x - s * 0.45, player.y - s * 0.45, s * 0.9, s * 0.9);
-            }
-
-            ctx.restore();
-
-            // ---- UI层 ----
-            const fontSize = Math.max(14, Math.min(W, H) * 0.05);
-            const padding = Math.min(W, H) * 0.04;
-
-            // 分数
-            ctx.fillStyle = '#ffffff';
-            ctx.font = `bold ${fontSize}px -apple-system, Arial, sans-serif`;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(Math.floor(score) + ' 秒', padding, padding);
-
-            // 最高分
-            ctx.fillStyle = '#999';
-            ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'top';
-            ctx.fillText('最高: ' + bestScore + ' 秒', W - padding, padding);
-
-            // 游戏结束覆盖层
-            if (gameOver && score > 0) {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-                ctx.fillRect(0, 0, W, H);
-
-                const cx = W / 2;
-                const cy = H / 2;
-
-                ctx.fillStyle = '#ff4444';
-                ctx.font = `bold ${fontSize * 1.5}px -apple-system, Arial, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('游戏结束', cx, cy - fontSize * 1.4);
-
-                ctx.fillStyle = '#ffffff';
-                ctx.font = `${fontSize * 0.85}px -apple-system, Arial, sans-serif`;
-                ctx.fillText('坚持了 ' + Math.floor(score) + ' 秒', cx, cy - fontSize * 0.15);
-
-                if (Math.floor(score) >= bestScore && bestScore > 0) {
-                    ctx.fillStyle = '#ffcc00';
-                    ctx.font = `bold ${fontSize * 0.75}px -apple-system, Arial, sans-serif`;
-                    ctx.fillText('🏆 新纪录！', cx, cy + fontSize * 0.8);
-                }
-
-                ctx.fillStyle = '#aaaaaa';
-                ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
-                const blink = 0.5 + 0.5 * Math.sin(Date.now() / 600);
-                ctx.globalAlpha = blink;
-                ctx.fillText('点击画面重新开始', cx, cy + fontSize * 1.7);
-                ctx.globalAlpha = 1;
-            }
-
-            // 初始画面
-            if (gameOver && score === 0) {
-                const cx = W / 2;
-                const cy = H / 2;
-
-                ctx.fillStyle = '#ffffff';
-                ctx.font = `bold ${fontSize * 1.1}px -apple-system, Arial, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('弹幕躲避', cx, cy - fontSize * 0.8);
-
-                ctx.fillStyle = '#aaaaaa';
-                ctx.font = `${fontSize * 0.55}px -apple-system, Arial, sans-serif`;
-                ctx.fillText('移动鼠标 / 滑动屏幕躲避彩色球', cx, cy + fontSize * 0.5);
-
-                const blink = 0.5 + 0.5 * Math.sin(Date.now() / 600);
-                ctx.globalAlpha = blink;
-                ctx.fillText('点击开始游戏', cx, cy + fontSize * 1.4);
-                ctx.globalAlpha = 1;
-            }
-        }
-
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
-
-        // 启动
-        gameLoop();
-    </script>
+    <p id="game-instructions" class="visually-hidden">使用鼠标、触摸、方向键或 WASD 躲避彩色弹幕球。按 Enter 或空格开始或重新开始游戏。</p>
+    <p id="game-status" class="visually-hidden" aria-live="polite" aria-atomic="true">等待开始游戏</p>
+    <canvas id="game" tabindex="0" role="application" aria-label="弹幕躲避游戏" aria-describedby="game-instructions game-status"></canvas>
+    <script type="module" src="./src/game.js"></script>
 </body>
 </html>
