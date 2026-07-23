@@ -1,14 +1,13 @@
 export const FIXED_STEP = 1 / 60;
 export const MAX_FRAME_TIME = 0.1;
 export const MAX_STEPS_PER_FRAME = 6;
-export const INITIAL_SPAWN_INTERVAL = 28 / 60;
-export const MIN_SPAWN_INTERVAL = 5 / 60;
-export const SPAWN_INTERVAL_DECREASE = 0.22 / 60;
 export const OPENING_PROTECTION_SECONDS = 3;
 
 const KEYBOARD_SPEED_FACTOR = 0.65;
 const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
 const MAX_LOGICAL_DIMENSION = 100_000;
+const MIN_SPAWN_DISTANCE_FACTOR = 0.2;
+const MAX_SPAWN_ATTEMPTS = 8;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -117,43 +116,64 @@ function updatePlayer(state, deltaTime, input) {
   );
 }
 
-function spawnEnemy(state, random) {
-  const shortEdge = Math.min(state.width, state.height);
-  const margin = shortEdge * 0.05;
+function createSpawnPoint(state, random, margin) {
   const side = Math.floor(random() * 4);
-  let x;
-  let y;
+  const offset = random();
 
   if (side === 0) {
-    x = random() * state.width;
-    y = -margin;
-  } else if (side === 1) {
-    x = state.width + margin;
-    y = random() * state.height;
-  } else if (side === 2) {
-    x = random() * state.width;
-    y = state.height + margin;
-  } else {
-    x = -margin;
-    y = random() * state.height;
+    return { x: offset * state.width, y: -margin };
+  }
+  if (side === 1) {
+    return { x: state.width + margin, y: offset * state.height };
+  }
+  if (side === 2) {
+    return { x: offset * state.width, y: state.height + margin };
+  }
+  return { x: -margin, y: offset * state.height };
+}
+
+function spawnEnemy(state, random, speedMultiplier) {
+  const shortEdge = Math.min(state.width, state.height);
+  const margin = shortEdge * 0.05;
+  const minimumDistance = shortEdge * MIN_SPAWN_DISTANCE_FACTOR;
+  let spawnPoint;
+
+  for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt += 1) {
+    const candidate = createSpawnPoint(state, random, margin);
+    if (
+      Math.hypot(
+        candidate.x - state.player.x,
+        candidate.y - state.player.y,
+      ) >= minimumDistance
+    ) {
+      spawnPoint = candidate;
+      break;
+    }
+  }
+
+  if (!spawnPoint) {
+    return false;
   }
 
   const dx =
-    state.player.x - x + (random() - 0.5) * shortEdge * 0.25;
+    state.player.x - spawnPoint.x + (random() - 0.5) * shortEdge * 0.25;
   const dy =
-    state.player.y - y + (random() - 0.5) * shortEdge * 0.25;
+    state.player.y - spawnPoint.y + (random() - 0.5) * shortEdge * 0.25;
   const distance = Math.hypot(dx, dy) || 1;
   const baseSpeed = shortEdge * 0.006 * 60;
-  const speed = baseSpeed + random() * baseSpeed * 1.5;
+  const speed =
+    (baseSpeed + random() * baseSpeed * 1.5) * speedMultiplier;
 
   state.enemies.push({
-    x,
-    y,
+    x: spawnPoint.x,
+    y: spawnPoint.y,
     vx: (dx / distance) * speed,
     vy: (dy / distance) * speed,
     size: shortEdge * (0.01 + random() * 0.016),
     color: `hsl(${random() * 360}, 80%, 55%)`,
   });
+
+  return true;
 }
 
 function createParticles(state, random, count = 35) {
@@ -189,18 +209,22 @@ function endGame(state, random) {
 }
 
 function updateEnemies(state, deltaTime, random) {
-  state.spawnElapsed += deltaTime;
-
-  if (state.spawnElapsed + 1e-9 >= state.spawnInterval) {
-    state.spawnElapsed = Math.max(
-      0,
-      state.spawnElapsed - state.spawnInterval,
-    );
-    spawnEnemy(state, random);
-    state.spawnInterval = Math.max(
-      MIN_SPAWN_INTERVAL,
-      state.spawnInterval - SPAWN_INTERVAL_DECREASE,
-    );
+  const difficulty = getDifficulty(state.elapsed);
+  if (difficulty.protected) {
+    state.spawnElapsed = 0;
+  } else if (state.enemies.length >= difficulty.enemyCap) {
+    state.spawnElapsed = 0;
+  } else {
+    state.spawnElapsed += deltaTime;
+    if (state.spawnElapsed + 1e-9 >= difficulty.spawnInterval) {
+      state.spawnElapsed = Math.max(
+        0,
+        state.spawnElapsed - difficulty.spawnInterval,
+      );
+      if (!spawnEnemy(state, random, difficulty.speedMultiplier)) {
+        state.spawnElapsed = 0;
+      }
+    }
   }
 
   const margin = Math.max(state.width, state.height) * 0.2;
@@ -292,7 +316,6 @@ export function createGameState({ width, height, bestScore = 0 }) {
     particles: [],
     elapsed: 0,
     spawnElapsed: 0,
-    spawnInterval: INITIAL_SPAWN_INTERVAL,
     shake: 0,
     finalScore: 0,
     bestScore: validBestScore,
@@ -358,7 +381,6 @@ export function startGame(state) {
   state.particles = [];
   state.elapsed = 0;
   state.spawnElapsed = 0;
-  state.spawnInterval = INITIAL_SPAWN_INTERVAL;
   state.shake = 0;
   state.finalScore = 0;
   state.bestScoreAtStart = state.bestScore;
