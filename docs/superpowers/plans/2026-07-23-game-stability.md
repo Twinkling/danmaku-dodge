@@ -1,6 +1,6 @@
 # 弹幕躲避稳定性 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **供智能体执行者使用：** 必须使用子技能 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，逐项实施本计划。各步骤使用复选框（`- [ ]`）跟踪状态。
 
 **Goal:** 把现有单文件小游戏改造成跨刷新率一致、支持键盘和无障碍操作、具有零依赖自动化测试的可维护静态应用。
 
@@ -633,7 +633,7 @@ export function resizeGame(state, width, height) {
 
 Run: `npm test -- tests/game-core.test.js`
 
-Expected: PASS，9 tests passed。
+Expected: PASS，全部测试通过，0 failed。
 
 - [x] **Step 5: 提交尺寸迁移**
 
@@ -1030,7 +1030,7 @@ if (!context) {
 
 Run: `npm run check`
 
-Expected: PASS，语法检查退出码 0，9 tests passed。
+Expected: PASS，语法检查退出码 0，全部测试通过，0 failed。
 
 - [x] **Step 5: 提交浏览器界面**
 
@@ -1084,7 +1084,7 @@ npm run check
 
 Run: `npm run check`
 
-Expected: PASS，退出码 0，9 tests passed，0 failed。
+Expected: PASS，退出码 0，全部测试通过，0 failed。
 
 - [x] **Step 3: 启动静态服务器并验证 HTTP**
 
@@ -1096,16 +1096,19 @@ Run: `curl -sS -I http://127.0.0.1:4173/`
 
 Expected: 包含 `200 OK` 和 `Content-type: text/html`。
 
-- [x] **Step 4: 执行浏览器回归**
+**Step 4: 执行浏览器回归**
 
 在受控浏览器中完成以下检查并记录结果：
 
-- 1280×720、DPR 2：Canvas 物理尺寸为 2560×1440。
-- 点击开始后玩家和敌人正常绘制，鼠标移动改变玩家位置。
-- 碰撞后出现结束页，粒子消失且震动归零，点击可重开。
-- Enter 可开始，方向键可连续改变玩家位置，空格可在结束后重开。
-- 390×844：初始页文字完整、Canvas 与视口一致。
-- 页面控制台没有 error 或 warning。
+- [x] 1280×720、DPR 2：Canvas 物理尺寸为 2560×1440。
+- [x] 点击开始后玩家和敌人正常绘制，鼠标移动改变玩家位置。
+- [x] 碰撞后出现结束页；结束状态检出后的截图可见粒子，1.2 秒后截图中粒子消失，随后两张间隔 350 毫秒的截图中世界元素位置稳定，未观察到继续震动；点击可重开。
+- [x] Enter 可开始游戏，Canvas 保持焦点。
+- [x] 游戏结束后按 Space 可立即重开，状态回到“游戏开始”。
+- [x] 连续发送 10 次 ArrowRight 后，操作前后截图显示角色向右移动，游戏仍处于运行状态。
+- [ ] 按住方向键的持续移动时长未直接模拟：当前受控浏览器未提供可用的持续 keyDown/keyUp 接口；浏览器入口行为测试覆盖按键状态保持，核心规则测试覆盖键盘移动。
+- [x] 390×844、DPR 1：初始页文字完整，Canvas 物理尺寸、显示尺寸与视口均一致，`touch-action` 为 `pinch-zoom`。
+- [x] 桌面和移动端检查结束时，页面 console 的 error/warning 日志均为空。
 
 - [x] **Step 5: 更新计划勾选状态并检查工作区**
 
@@ -1129,8 +1132,11 @@ Expected: 自动化检查全部通过，工作区干净，当前分支只领先�
 ## 验证记录
 
 - `npm run check` 通过，42/42 项测试成功，0 项失败。
-- 真实浏览器桌面视口（1280×720）已验证：点击开始、Enter 重新开始、Canvas 焦点、鼠标跟随、游戏结束和最高分流程均正常。
-- 真实浏览器移动端视口（390×844）已验证：Canvas 尺寸与视口匹配，DPR 为 1，`touch-action` 为 `pinch-zoom`，首屏布局正常。
-- 受控浏览器检查期间未观察到页面 console error 或 warning。
+- 受控浏览器桌面视口（1280×720）在 DPR 2 下读得 Canvas 物理尺寸 2560×1440、显示尺寸 1280×720。
+- Enter 开始后状态为“游戏开始”且 Canvas 获得焦点；游戏结束后按 Space 立即重开，状态回到“游戏开始”。
+- 连续发送 10 次 ArrowRight 后，操作前后截图显示角色向右移动且游戏仍在运行；按住方向键的持续时长未直接模拟，相关按键状态和移动规则由自动化测试覆盖。
+- 碰撞结束状态检出后的截图可见粒子，1.2 秒后截图中粒子消失；其后两张间隔 350 毫秒的截图中世界元素位置稳定，未观察到继续震动。
+- 受控浏览器移动端视口（390×844）在 DPR 1 下读得 Canvas 物理尺寸和显示尺寸均为 390×844，`touch-action` 为 `pinch-zoom`，首屏布局正常。
+- 桌面和移动端检查结束时读取的页面 console error/warning 日志均为空。
 - 多触点仲裁由可执行的浏览器入口行为测试覆盖；真实物理设备上的双指缩放未直接模拟。
 - 本地 HTTP 服务验证成功：`/`、`/src/game.js` 和 `/src/game-core.js` 均返回 200。
