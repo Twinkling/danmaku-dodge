@@ -173,17 +173,32 @@ export function createBrowserGame({
     }
   }
 
-  function handlePointerEnd(event) {
-    if (event.pointerType !== 'touch') {
-      deactivatePointer();
-      return;
-    }
-
+  function releaseActiveTouch(event) {
     if (event.pointerId !== activeTouchPointerId) {
       return;
     }
 
     activeTouchPointerId = null;
+    deactivatePointer();
+  }
+
+  function handlePointerUp(event) {
+    if (event.pointerType === 'touch') {
+      releaseActiveTouch(event);
+      return;
+    }
+
+    if (event.pointerType !== 'mouse') {
+      deactivatePointer();
+    }
+  }
+
+  function handlePointerCancel(event) {
+    if (event.pointerType === 'touch') {
+      releaseActiveTouch(event);
+      return;
+    }
+
     deactivatePointer();
   }
 
@@ -237,8 +252,8 @@ export function createBrowserGame({
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointermove', handlePointerMove);
     canvas.addEventListener('pointerleave', handlePointerLeave);
-    canvas.addEventListener('pointercancel', handlePointerEnd);
-    canvas.addEventListener('pointerup', handlePointerEnd);
+    canvas.addEventListener('pointercancel', handlePointerCancel);
+    canvas.addEventListener('pointerup', handlePointerUp);
     windowObject.addEventListener('keydown', handleKeyDown);
     windowObject.addEventListener('keyup', handleKeyUp);
     windowObject.addEventListener('blur', clearTransientInput);

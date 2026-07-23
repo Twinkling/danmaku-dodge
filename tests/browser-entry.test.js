@@ -247,6 +247,12 @@ test('HTML 外壳保留元信息、无障碍结构并允许页面缩放', async 
   assert.match(html, /:focus-visible/);
   assert.match(html, /\.visually-hidden/);
   assert.match(html, /\.game-error/);
+  assert.equal(
+    html.match(/touch-action:\s*pinch-zoom/g)?.length,
+    2,
+    '页面与 Canvas 都应允许双指缩放',
+  );
+  assert.doesNotMatch(html, /touch-action:\s*none/);
   assert.doesNotMatch(html, /function\s+gameLoop/);
   assert.doesNotMatch(html, /let\s+enemies/);
 });
@@ -413,6 +419,31 @@ test('仅主触摸控制目标且 blur 清理全部瞬时输入', async () => {
     pointerEvent({ pointerType: 'mouse' }),
   );
   assert.equal(game.input.pointerActive, false);
+});
+
+test('鼠标 pointerup 后继续向最后目标缓动', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  environment.canvas.dispatch(
+    'pointerdown',
+    pointerEvent({ pointerType: 'mouse', clientX: 700, clientY: 300 }),
+  );
+  environment.canvas.dispatch(
+    'pointerup',
+    pointerEvent({ pointerType: 'mouse', clientX: 700, clientY: 300 }),
+  );
+
+  const initialX = game.getState().player.x;
+  environment.runNextFrame(1_000);
+  environment.runNextFrame(1_017);
+
+  assert.equal(game.input.pointerActive, true);
+  assert.equal(game.input.pointerX, 700);
+  assert.ok(game.getState().player.x > initialX);
 });
 
 test('点击或键盘重开后首个动画帧不累计暂停时间', async () => {
