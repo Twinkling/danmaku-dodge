@@ -1,0 +1,9 @@
+{
+  "name": "danmaku-dodge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/game-core.js && node --check src/game.js && node --test"
+  }
+}
