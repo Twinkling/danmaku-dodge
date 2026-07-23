@@ -6,6 +6,8 @@ import { createBrowserGame } from '../src/game.js';
 
 const rootUrl = new URL('../', import.meta.url);
 const htmlUrl = new URL('index.html', rootUrl);
+const MAX_BACKING_STORE_SIDE = 8_192;
+const MAX_BACKING_STORE_PIXELS = 16_777_216;
 
 function createClassList(initialClasses = []) {
   const classes = new Set(initialClasses);
@@ -209,6 +211,10 @@ function pointerEvent({
   };
 }
 
+function lastContextCall(context, method) {
+  return context.calls.filter(([name]) => name === method).at(-1);
+}
+
 test('HTML 外壳保留元信息、无障碍结构并允许页面缩放', async () => {
   const html = await readFile(htmlUrl, 'utf8');
   const viewportTag = html.match(
@@ -324,6 +330,110 @@ test('resize 保留非法视口前的尺寸并统一夹取画布与状态边界'
   assert.equal(game.getState().height, 600);
   assert.equal(environment.canvas.width, 1);
   assert.equal(environment.canvas.height, 1);
+  assert.deepEqual(lastContextCall(environment.context, 'setTransform'), [
+    'setTransform',
+    1 / 800,
+    0,
+    0,
+    1 / 600,
+    0,
+    0,
+  ]);
+});
+
+test('超大正方形视口保留逻辑尺寸并限制 backing store 总像素', () => {
+  const environment = createEnvironment();
+  environment.windowObject.innerWidth = 100_000;
+  environment.windowObject.innerHeight = 100_000;
+  environment.windowObject.devicePixelRatio = 3;
+
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  assert.equal(game.getState().width, 100_000);
+  assert.equal(game.getState().height, 100_000);
+  assert.equal(environment.canvas.style.width, '100000px');
+  assert.equal(environment.canvas.style.height, '100000px');
+  assert.equal(environment.canvas.width, 4_096);
+  assert.equal(environment.canvas.height, 4_096);
+  assert.ok(environment.canvas.width <= MAX_BACKING_STORE_SIDE);
+  assert.ok(environment.canvas.height <= MAX_BACKING_STORE_SIDE);
+  assert.ok(
+    environment.canvas.width * environment.canvas.height <=
+      MAX_BACKING_STORE_PIXELS,
+  );
+  assert.deepEqual(lastContextCall(environment.context, 'setTransform'), [
+    'setTransform',
+    environment.canvas.width / 100_000,
+    0,
+    0,
+    environment.canvas.height / 100_000,
+    0,
+    0,
+  ]);
+});
+
+test('超宽视口受单边预算约束且使用实际非等比变换', () => {
+  const environment = createEnvironment();
+  environment.windowObject.innerWidth = 100_000;
+  environment.windowObject.innerHeight = 1_000;
+  environment.windowObject.devicePixelRatio = 3;
+
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  assert.equal(game.getState().width, 100_000);
+  assert.equal(game.getState().height, 1_000);
+  assert.equal(environment.canvas.style.width, '100000px');
+  assert.equal(environment.canvas.style.height, '1000px');
+  assert.equal(environment.canvas.width, MAX_BACKING_STORE_SIDE);
+  assert.equal(environment.canvas.height, 81);
+  assert.ok(
+    environment.canvas.width * environment.canvas.height <=
+      MAX_BACKING_STORE_PIXELS,
+  );
+  assert.deepEqual(lastContextCall(environment.context, 'setTransform'), [
+    'setTransform',
+    environment.canvas.width / 100_000,
+    0,
+    0,
+    environment.canvas.height / 1_000,
+    0,
+    0,
+  ]);
+});
+
+test('常规视口保持请求的 DPR backing store', () => {
+  for (const [width, height] of [
+    [800, 600],
+    [1_280, 720],
+  ]) {
+    const environment = createEnvironment();
+    environment.windowObject.innerWidth = width;
+    environment.windowObject.innerHeight = height;
+    environment.windowObject.devicePixelRatio = 2;
+
+    createBrowserGame({
+      windowObject: environment.windowObject,
+      documentObject: environment.documentObject,
+    });
+
+    assert.equal(environment.canvas.width, width * 2);
+    assert.equal(environment.canvas.height, height * 2);
+    assert.deepEqual(lastContextCall(environment.context, 'setTransform'), [
+      'setTransform',
+      2,
+      0,
+      0,
+      2,
+      0,
+      0,
+    ]);
+  }
 });
 
 test('仅主触摸控制目标且 blur 清理全部瞬时输入', async () => {

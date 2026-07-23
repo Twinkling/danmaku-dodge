@@ -8,6 +8,21 @@ import {
 
 const STORAGE_KEY = 'dodgeBestScoreV2';
 const MAX_LOGICAL_DIMENSION = 100_000;
+const MAX_BACKING_STORE_SIDE = 8_192;
+const MAX_BACKING_STORE_PIXELS = 16_777_216;
+
+function backingStoreScale(logicalWidth, logicalHeight, requestedDpr) {
+  const sideScale = Math.min(
+    MAX_BACKING_STORE_SIDE / logicalWidth,
+    MAX_BACKING_STORE_SIDE / logicalHeight,
+  );
+  const pixelScale = Math.sqrt(
+    MAX_BACKING_STORE_PIXELS / (logicalWidth * logicalHeight),
+  );
+  const scale = Math.min(requestedDpr, sideScale, pixelScale);
+
+  return Number.isFinite(scale) && scale > 0 ? scale : Number.MIN_VALUE;
+}
 
 export function createBrowserGame({
   windowObject = globalThis.window,
@@ -74,8 +89,13 @@ export function createBrowserGame({
     const logicalWidth = resizedDimension(windowObject.innerWidth, state.width);
     const logicalHeight = resizedDimension(windowObject.innerHeight, state.height);
     const rawDpr = windowObject.devicePixelRatio;
-    const dpr =
+    const requestedDpr =
       Number.isFinite(rawDpr) && rawDpr > 0 ? Math.min(rawDpr, 3) : 1;
+    const scale = backingStoreScale(
+      logicalWidth,
+      logicalHeight,
+      requestedDpr,
+    );
     const oldWidth = state.width;
     const oldHeight = state.height;
     const xRatio = logicalWidth / oldWidth;
@@ -84,11 +104,18 @@ export function createBrowserGame({
     input.pointerX = clamp(input.pointerX * xRatio, 0, logicalWidth);
     input.pointerY = clamp(input.pointerY * yRatio, 0, logicalHeight);
 
-    canvas.width = Math.max(1, Math.floor(logicalWidth * dpr));
-    canvas.height = Math.max(1, Math.floor(logicalHeight * dpr));
+    canvas.width = Math.max(1, Math.floor(logicalWidth * scale));
+    canvas.height = Math.max(1, Math.floor(logicalHeight * scale));
     canvas.style.width = `${logicalWidth}px`;
     canvas.style.height = `${logicalHeight}px`;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.setTransform(
+      canvas.width / logicalWidth,
+      0,
+      0,
+      canvas.height / logicalHeight,
+      0,
+      0,
+    );
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     resizeGame(state, logicalWidth, logicalHeight);
