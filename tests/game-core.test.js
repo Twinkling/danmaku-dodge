@@ -807,13 +807,50 @@ test('开局保护允许移动并阻止刷怪', () => {
   assert.equal(state.spawnElapsed, 0);
 });
 
-test('保护结束后按热身间隔生成首个敌人', () => {
+test('刷怪债务达到热身间隔时生成敌人', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
   state.elapsed = 3;
   state.spawnElapsed = getDifficulty(3).spawnInterval;
 
   stepGame(state, 0, noInput, () => 0.5);
+
+  assert.equal(state.enemies.length, 1);
+});
+
+test('固定步累加使保护边界落在第180与181步之间并于第262步自然首刷', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  const random = () => 0.5;
+
+  for (let step = 1; step <= 179; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 0);
+  }
+
+  // 连续累加的第 180 步略小于 3 秒，第 181 步才首次解除保护。
+  stepGame(state, FIXED_STEP, noInput, random);
+  assertClose(state.elapsed, 3);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 0);
+  assert.equal(state.spawnElapsed, 0);
+
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, false);
+  assert.equal(state.enemies.length, 0);
+  assertClose(state.spawnElapsed, FIXED_STEP);
+
+  for (let step = 182; step < 262; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(state.enemies.length, 0);
+    assert.ok(
+      state.spawnElapsed + 1e-9 <
+        getDifficulty(state.elapsed).spawnInterval,
+    );
+  }
+
+  stepGame(state, FIXED_STEP, noInput, random);
 
   assert.equal(state.enemies.length, 1);
 });
