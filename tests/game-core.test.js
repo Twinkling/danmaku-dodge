@@ -38,6 +38,25 @@ function simulateAtRate(rate) {
   return state;
 }
 
+function assertClose(actual, expected, tolerance = 1e-9) {
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `expected ${actual} to be within ${tolerance} of ${expected}`,
+  );
+}
+
+function assertSpatialStateIsFinite(state) {
+  for (const field of ['x', 'y', 'size']) {
+    assert.equal(Number.isFinite(state.player[field]), true);
+  }
+  for (const entity of [...state.enemies, ...state.particles]) {
+    for (const field of ['x', 'y', 'vx', 'vy', 'size']) {
+      assert.equal(Number.isFinite(entity[field]), true);
+    }
+  }
+  assert.equal(Number.isFinite(state.shake), true);
+}
+
 test('createGameState 初始化空闲状态并规范化最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: -4 });
 
@@ -69,6 +88,20 @@ test('createGameState 将非法尺寸回退为有限的最小状态', () => {
     assert.equal(Number.isFinite(state.player.y), true);
     assert.equal(Number.isFinite(state.player.size), true);
   }
+});
+
+test('createGameState 将极小正数尺寸规范为安全最小值', () => {
+  const state = createGameState({
+    width: Number.MIN_VALUE,
+    height: Number.MIN_VALUE,
+  });
+
+  assert.equal(state.width, 1);
+  assert.equal(state.height, 1);
+
+  resizeGame(state, 1, 1);
+
+  assertSpatialStateIsFinite(state);
 });
 
 test('startGame 原地重置新一局状态并保留开局最高分', () => {
@@ -184,13 +217,38 @@ test('resizeGame 将非法或极小目标尺寸规范为有限的最小状态', 
   assert.equal(state.player.y, 0.5);
   assert.equal(Number.isFinite(state.shake), true);
   assert.equal(state.shake, 12 / 240);
-  for (const field of ['x', 'y', 'size']) {
-    assert.equal(Number.isFinite(state.player[field]), true);
-  }
-  for (const entity of [...state.enemies, ...state.particles]) {
-    for (const field of ['x', 'y', 'vx', 'vy', 'size']) {
-      assert.equal(Number.isFinite(entity[field]), true);
-    }
+  assertSpatialStateIsFinite(state);
+});
+
+test('resizeGame 往返极小正数尺寸时始终保持空间状态有限', () => {
+  const state = createGameState({ width: 320, height: 240 });
+  state.enemies.push({
+    x: 80,
+    y: 60,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 160,
+    y: 120,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+  state.shake = 12;
+
+  for (const [width, height] of [
+    [Number.MIN_VALUE, Number.MIN_VALUE],
+    [320, 240],
+  ]) {
+    resizeGame(state, width, height);
+
+    assert.ok(state.width >= 1);
+    assert.ok(state.height >= 1);
+    assertSpatialStateIsFinite(state);
   }
 });
 
@@ -221,8 +279,11 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
     size: 6,
     life: 1,
   });
+  const player = state.player;
   const enemies = state.enemies;
   const particles = state.particles;
+  const enemy = state.enemies[0];
+  const particle = state.particles[0];
   const lifecycle = {
     phase: state.phase,
     elapsed: state.elapsed,
@@ -238,8 +299,11 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
   const result = resizeGame(state, 640, 480);
 
   assert.strictEqual(result, state);
+  assert.strictEqual(state.player, player);
   assert.strictEqual(state.enemies, enemies);
   assert.strictEqual(state.particles, particles);
+  assert.strictEqual(state.enemies[0], enemy);
+  assert.strictEqual(state.particles[0], particle);
   assert.deepEqual(
     {
       phase: state.phase,
@@ -254,6 +318,83 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
     },
     lifecycle,
   );
+});
+
+test('resizeGame 重复应用同一尺寸不会累积空间状态误差', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  state.player.x = 200;
+  state.player.y = 150;
+  state.enemies.push({
+    x: 100,
+    y: 90,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 300,
+    y: 200,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+  state.shake = 12;
+
+  for (let resizeCount = 0; resizeCount < 3; resizeCount += 1) {
+    resizeGame(state, 800, 600);
+  }
+
+  assertClose(state.player.x, 200);
+  assertClose(state.player.y, 150);
+  assertClose(state.enemies[0].x, 100);
+  assertClose(state.enemies[0].y, 90);
+  assertClose(state.enemies[0].vx, 120);
+  assertClose(state.enemies[0].vy, 60);
+  assertClose(state.particles[0].x, 300);
+  assertClose(state.particles[0].y, 200);
+  assertClose(state.particles[0].vx, 30);
+  assertClose(state.particles[0].vy, 15);
+  assertClose(state.shake, 12);
+});
+
+test('resizeGame 横竖尺寸往返不会累积空间状态误差', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  state.player.x = 200;
+  state.player.y = 150;
+  state.enemies.push({
+    x: 100,
+    y: 90,
+    vx: 120,
+    vy: 60,
+    size: 12,
+    color: '',
+  });
+  state.particles.push({
+    x: 300,
+    y: 200,
+    vx: 30,
+    vy: 15,
+    size: 6,
+    life: 1,
+  });
+  state.shake = 12;
+
+  resizeGame(state, 600, 800);
+  resizeGame(state, 800, 600);
+
+  assertClose(state.player.x, 200);
+  assertClose(state.player.y, 150);
+  assertClose(state.enemies[0].x, 100);
+  assertClose(state.enemies[0].y, 90);
+  assertClose(state.enemies[0].vx, 120);
+  assertClose(state.enemies[0].vy, 60);
+  assertClose(state.particles[0].x, 300);
+  assertClose(state.particles[0].y, 200);
+  assertClose(state.particles[0].vx, 30);
+  assertClose(state.particles[0].vy, 15);
+  assertClose(state.shake, 12);
 });
 
 test('固定时间步长让不同刷新率的一秒模拟保持一致', () => {

@@ -201,8 +201,7 @@ export function playerSize(width, height) {
 }
 
 function sanitizeDimension(value) {
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 1;
+  return Number.isFinite(value) && value >= 1 ? value : 1;
 }
 
 export function createGameState({ width, height, bestScore = 0 }) {
