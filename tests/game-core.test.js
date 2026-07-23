@@ -88,11 +88,11 @@ test('getDifficulty 按时间返回连续分段难度', () => {
   ] of cases) {
     const difficulty = getDifficulty(elapsedSeconds);
 
-    assert.deepEqual(Object.keys(difficulty), [
+    assert.deepEqual(Object.keys(difficulty).sort(), [
+      'enemyCap',
       'protected',
       'spawnInterval',
       'speedMultiplier',
-      'enemyCap',
     ]);
     assert.equal(difficulty.protected, expectedProtected);
     if (Number.isFinite(expectedSpawnInterval)) {

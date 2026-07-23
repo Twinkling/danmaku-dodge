@@ -35,8 +35,20 @@ export function getDifficulty(elapsedSeconds) {
   if (elapsed < 20) {
     return {
       protected: false,
-      spawnInterval: interpolate(elapsed, 3, 20, 1.4, 0.9),
-      speedMultiplier: interpolate(elapsed, 3, 20, 0.45, 0.7),
+      spawnInterval: interpolate(
+        elapsed,
+        OPENING_PROTECTION_SECONDS,
+        20,
+        1.4,
+        0.9,
+      ),
+      speedMultiplier: interpolate(
+        elapsed,
+        OPENING_PROTECTION_SECONDS,
+        20,
+        0.45,
+        0.7,
+      ),
       enemyCap: 6,
     };
   }
