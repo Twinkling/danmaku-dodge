@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   FIXED_STEP,
+  INITIAL_SPAWN_INTERVAL,
   MIN_SPAWN_INTERVAL,
+  SPAWN_INTERVAL_DECREASE,
   advanceGame,
   createGameState,
   startGame,
@@ -343,6 +345,8 @@ test('结束后敌人冻结而粒子与震动自然结束', () => {
   assert.equal(state.phase, 'gameover');
   const collisionX = state.enemies[0].x;
   const collisionY = state.enemies[0].y;
+  const collisionSpawnElapsed = state.spawnElapsed;
+  const collisionFinalScore = state.finalScore;
 
   for (let step = 0; step < 180; step += 1) {
     stepGame(state, FIXED_STEP, {}, () => 0.5);
@@ -352,6 +356,112 @@ test('结束后敌人冻结而粒子与震动自然结束', () => {
   assert.equal(state.enemies[0].y, collisionY);
   assert.equal(state.particles.length, 0);
   assert.equal(state.shake, 0);
+  assert.equal(state.spawnElapsed, collisionSpawnElapsed);
+  assert.equal(state.finalScore, collisionFinalScore);
+});
+
+test('开局后第二十八个固定步长恰好生成首个敌人', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  assert.equal(state.spawnInterval, INITIAL_SPAWN_INTERVAL);
+
+  for (let step = 0; step < 27; step += 1) {
+    stepGame(state, FIXED_STEP, {}, () => 0.5);
+    assert.equal(state.enemies.length, 0);
+  }
+
+  stepGame(state, FIXED_STEP, {}, () => 0.5);
+
+  assert.equal(state.enemies.length, 1);
+});
+
+test('连续刷怪时间隔逐次下降并保留有效时间余量', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  let spawnCount = 0;
+
+  for (let step = 0; step < 2400; step += 1) {
+    const previousInterval = state.spawnInterval;
+    stepGame(state, FIXED_STEP, {}, () => 0.5);
+
+    if (state.enemies.length > 0) {
+      spawnCount += state.enemies.length;
+      assert.equal(
+        state.spawnInterval,
+        Math.max(
+          MIN_SPAWN_INTERVAL,
+          previousInterval - SPAWN_INTERVAL_DECREASE,
+        ),
+      );
+      assert.equal(Number.isFinite(state.spawnElapsed), true);
+      assert.ok(state.spawnElapsed >= 0);
+      assert.ok(state.spawnElapsed < state.spawnInterval + 1e-9);
+      state.enemies = [];
+    }
+  }
+
+  assert.ok(spawnCount > 100);
+  assert.equal(state.spawnInterval, MIN_SPAWN_INTERVAL);
+});
+
+test('刷怪间隔达到下限后十秒恰好生成一百二十个敌人', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.spawnInterval = MIN_SPAWN_INTERVAL;
+  let spawnCount = 0;
+
+  for (let step = 0; step < 600; step += 1) {
+    stepGame(state, FIXED_STEP, {}, () => 0.5);
+
+    if (state.enemies.length > 0) {
+      spawnCount += state.enemies.length;
+      state.enemies = [];
+    }
+  }
+
+  assert.equal(spawnCount, 120);
+  assert.equal(Number.isFinite(state.spawnElapsed), true);
+  assert.ok(state.spawnElapsed >= 0);
+  assert.ok(state.spawnElapsed < MIN_SPAWN_INTERVAL + 1e-9);
+});
+
+test('注入的随机序列能确定敌人从四条边界外生成', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  const sideRandomValues = [0, 0.25, 0.5, 0.75];
+  const isOutsideSide = [
+    (enemy) => enemy.y < 0,
+    (enemy) => enemy.x > state.width,
+    (enemy) => enemy.y > state.height,
+    (enemy) => enemy.x < 0,
+  ];
+
+  for (let side = 0; side < sideRandomValues.length; side += 1) {
+    state.enemies = [];
+    state.spawnElapsed = state.spawnInterval;
+    const values = [
+      sideRandomValues[side],
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.125,
+    ];
+    let randomIndex = 0;
+    const random = () => values[randomIndex++];
+
+    stepGame(state, FIXED_STEP, {}, random);
+
+    assert.equal(randomIndex, values.length);
+    assert.equal(state.enemies.length, 1);
+    const [enemy] = state.enemies;
+    assert.equal(isOutsideSide[side](enemy), true);
+    for (const field of ['x', 'y', 'vx', 'vy', 'size']) {
+      assert.equal(Number.isFinite(enemy[field]), true);
+    }
+    assert.equal(enemy.color, 'hsl(45, 80%, 55%)');
+  }
 });
 
 test('刷怪间隔不会降低到下限以下', () => {
@@ -381,4 +491,27 @@ test('明显越界且继续向外移动的敌人会被清理', () => {
 
   assert.equal(state.enemies.length, 0);
   assert.equal(state.phase, 'running');
+});
+
+test('碰撞检测不会阻止清理数组中更早的越界敌人', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  const collisionEnemy = {
+    x: state.player.x,
+    y: state.player.y,
+    vx: 0,
+    vy: 0,
+    size: 10,
+  };
+  state.enemies.push(
+    { x: 1000, y: state.player.y, vx: 20, vy: 0, size: 10 },
+    { x: state.player.x, y: -200, vx: 0, vy: -20, size: 10 },
+    collisionEnemy,
+  );
+
+  stepGame(state, FIXED_STEP, {}, () => 0.5);
+
+  assert.equal(state.phase, 'gameover');
+  assert.equal(state.enemies.length, 1);
+  assert.strictEqual(state.enemies[0], collisionEnemy);
 });

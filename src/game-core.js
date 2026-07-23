@@ -124,8 +124,11 @@ function endGame(state, random) {
 function updateEnemies(state, deltaTime, random) {
   state.spawnElapsed += deltaTime;
 
-  if (state.spawnElapsed >= state.spawnInterval) {
-    state.spawnElapsed -= state.spawnInterval;
+  if (state.spawnElapsed + 1e-9 >= state.spawnInterval) {
+    state.spawnElapsed = Math.max(
+      0,
+      state.spawnElapsed - state.spawnInterval,
+    );
     spawnEnemy(state, random);
     state.spawnInterval = Math.max(
       MIN_SPAWN_INTERVAL,
@@ -134,6 +137,7 @@ function updateEnemies(state, deltaTime, random) {
   }
 
   const margin = Math.max(state.width, state.height) * 0.2;
+  let collided = false;
 
   for (let index = state.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = state.enemies[index];
@@ -151,9 +155,12 @@ function updateEnemies(state, deltaTime, random) {
       Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y) <
       state.player.size + enemy.size
     ) {
-      endGame(state, random);
-      return;
+      collided = true;
     }
+  }
+
+  if (collided) {
+    endGame(state, random);
   }
 }
 
