@@ -174,6 +174,7 @@ test('resizeGame 将非法或极小目标尺寸规范为有限的最小状态', 
     size: 6,
     life: 1,
   });
+  state.shake = 12;
 
   resizeGame(state, 0, Number.POSITIVE_INFINITY);
 
@@ -181,6 +182,8 @@ test('resizeGame 将非法或极小目标尺寸规范为有限的最小状态', 
   assert.equal(state.height, 1);
   assert.equal(state.player.x, 0.5);
   assert.equal(state.player.y, 0.5);
+  assert.equal(Number.isFinite(state.shake), true);
+  assert.equal(state.shake, 12 / 240);
   for (const field of ['x', 'y', 'size']) {
     assert.equal(Number.isFinite(state.player[field]), true);
   }
