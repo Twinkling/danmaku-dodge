@@ -19,8 +19,26 @@ test('createGameState 初始化空闲状态并规范化最高分', () => {
   assert.equal(createGameState({ width: 800, height: 600, bestScore: '7 秒' }).bestScore, 0);
 });
 
+test('createGameState 将非法尺寸回退为有限的最小状态', () => {
+  const invalidDimensions = [
+    { width: 0, height: -600 },
+    { width: Number.NaN, height: Number.POSITIVE_INFINITY },
+  ];
+
+  for (const dimensions of invalidDimensions) {
+    const state = createGameState(dimensions);
+
+    assert.equal(state.width, 1);
+    assert.equal(state.height, 1);
+    assert.equal(Number.isFinite(state.player.x), true);
+    assert.equal(Number.isFinite(state.player.y), true);
+    assert.equal(Number.isFinite(state.player.size), true);
+  }
+});
+
 test('startGame 原地重置新一局状态并保留开局最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: 12 });
+  state.phase = 'gameover';
   state.width = 640;
   state.height = 480;
   state.accumulator = 1;

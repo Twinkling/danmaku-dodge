@@ -18,14 +18,14 @@ export function playerSize(width, height) {
   return Math.max(8, Math.min(width, height) * 0.018);
 }
 
-function validDimension(value) {
+function sanitizeDimension(value) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 1;
 }
 
 export function createGameState({ width, height, bestScore = 0 }) {
-  const validWidth = validDimension(width);
-  const validHeight = validDimension(height);
+  const validWidth = sanitizeDimension(width);
+  const validHeight = sanitizeDimension(height);
   const validBestScore = sanitizeBestScore(bestScore);
 
   return {
