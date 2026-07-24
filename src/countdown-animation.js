@@ -10,6 +10,7 @@ export const COUNTDOWN_SHIELD_START_SECONDS = 5.2;
 const COUNTDOWN_RETURN_START_SECONDS = 4.8;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const DEFAULT_MAX_PARTICLES = 180;
+const SAMPLE_FONT_SIZE = 192;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -133,7 +134,7 @@ function thinPoints(points, maxParticles) {
   );
 }
 
-function sampleDigit(createCanvas, digit, fontSize, maxParticles) {
+function sampleDigit(createCanvas, digit, maxParticles) {
   try {
     const canvas = createCanvas();
     if (!canvas || typeof canvas.getContext !== 'function') {
@@ -148,28 +149,28 @@ function sampleDigit(createCanvas, digit, fontSize, maxParticles) {
       return null;
     }
 
-    const width = Math.max(1, Math.round(fontSize * 1.15));
-    const height = Math.max(1, Math.round(fontSize * 1.35));
+    const width = Math.round(SAMPLE_FONT_SIZE * 1.15);
+    const height = Math.round(SAMPLE_FONT_SIZE * 1.35);
     canvas.width = width;
     canvas.height = height;
 
     offscreenContext.clearRect(0, 0, width, height);
     offscreenContext.fillStyle = '#ffffff';
-    offscreenContext.font = `900 ${fontSize}px system-ui, sans-serif`;
+    offscreenContext.font = `900 ${SAMPLE_FONT_SIZE}px system-ui, sans-serif`;
     offscreenContext.textAlign = 'center';
     offscreenContext.textBaseline = 'middle';
     offscreenContext.fillText(String(digit), width / 2, height / 2);
 
     const pixels = offscreenContext.getImageData(0, 0, width, height).data;
-    const gridSize = Math.max(2, Math.round(fontSize / 18));
+    const gridSize = Math.max(2, Math.round(SAMPLE_FONT_SIZE / 18));
     const points = [];
 
     for (let y = 0; y < height; y += gridSize) {
       for (let x = 0; x < width; x += gridSize) {
         if (pixels[(y * width + x) * 4 + 3] > 64) {
           points.push({
-            x: x + gridSize / 2 - width / 2,
-            y: y + gridSize / 2 - height / 2,
+            x: (x + gridSize / 2 - width / 2) / SAMPLE_FONT_SIZE,
+            y: (y + gridSize / 2 - height / 2) / SAMPLE_FONT_SIZE,
           });
         }
       }
@@ -244,8 +245,8 @@ function drawParticles(context, {
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index];
     const angle = index * GOLDEN_ANGLE;
-    const targetX = centerX + point.x;
-    const targetY = centerY + point.y;
+    const targetX = centerX + point.x * fontSize;
+    const targetY = centerY + point.y * fontSize;
     let x = targetX;
     let y = targetY;
     let alpha = 1;
@@ -313,14 +314,13 @@ export function createCountdownRenderer({
           1,
           Math.round(Number.isFinite(fontSize) ? fontSize : 1),
         );
-        const cacheKey = `${frame.digit}:${roundedFontSize}`;
+        const cacheKey = frame.digit;
         if (!templateCache.has(cacheKey)) {
           templateCache.set(
             cacheKey,
             sampleDigit(
               createCanvas,
               frame.digit,
-              roundedFontSize,
               particleLimit,
             ),
           );
