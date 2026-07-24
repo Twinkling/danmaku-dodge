@@ -1071,15 +1071,30 @@ test('各阶段按预判比例选择敌人类型并保持随机序列消费', ()
 });
 
 test('预判型敌人瞄准玩家约零点六秒后的预计位置', () => {
-  const predictive = spawnMovingEnemy(0).enemy;
+  const { enemy: predictive, state } = spawnMovingEnemy(0);
   const normal = spawnMovingEnemy(0.9).enemy;
+  const speed = Math.hypot(predictive.vx, predictive.vy);
+  const spawnPoint = {
+    x: state.width * 0.5,
+    y: -Math.min(state.width, state.height) * 0.05,
+  };
+  const target = {
+    x: state.player.x + state.player.vx * 0.6,
+    y: state.player.y + state.player.vy * 0.6,
+  };
+  const targetDistance = Math.hypot(
+    target.x - spawnPoint.x,
+    target.y - spawnPoint.y,
+  );
 
   assert.equal(predictive.type, 'predictive');
   assert.equal(normal.type, 'normal');
   assertClose(
-    Math.hypot(predictive.vx, predictive.vy),
+    speed,
     Math.hypot(normal.vx, normal.vy),
   );
+  assertClose(predictive.vx / speed, (target.x - spawnPoint.x) / targetDistance);
+  assertClose(predictive.vy / speed, (target.y - spawnPoint.y) / targetDistance);
   assert.ok(predictive.vx / predictive.vy > normal.vx / normal.vy);
 });
 
