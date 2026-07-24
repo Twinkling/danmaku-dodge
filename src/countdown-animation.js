@@ -194,11 +194,15 @@ function drawFallback(context, {
   frame,
   centerX,
   centerY,
+  playerX,
+  playerY,
   fontSize,
 }) {
   const progress = clamp(frame.stageProgress, 0, 1);
   let alpha = 1;
   let scale = 1;
+  let x = centerX;
+  let y = centerY;
 
   if (frame.stage === 'aggregate') {
     alpha = progress;
@@ -207,8 +211,11 @@ function drawFallback(context, {
     alpha = 1 - progress;
     scale = 1 + easeOutCubic(progress) * 0.8;
   } else if (frame.stage === 'return') {
+    const eased = easeInOutCubic(progress);
     alpha = 1 - progress;
-    scale = 1 - easeInOutCubic(progress) * 0.7;
+    scale = 1 - eased * 0.7;
+    x = centerX + (playerX - centerX) * eased;
+    y = centerY + (playerY - centerY) * eased;
   }
 
   context.globalAlpha = alpha;
@@ -217,7 +224,7 @@ function drawFallback(context, {
   context.font = `900 ${fontSize}px system-ui, sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.translate(centerX, centerY);
+  context.translate(x, y);
   context.scale(scale, scale);
   context.fillText(String(frame.digit), 0, 0);
 }

@@ -130,6 +130,18 @@ test('按精确边界派生完整倒计时帧', () => {
     stageProgress: 0,
     shieldProgress: 0,
   });
+  assert.deepEqual(getCountdownFrame(2.02), {
+    digit: 2,
+    stage: 'hold',
+    stageProgress: 0,
+    shieldProgress: 0,
+  });
+  assert.deepEqual(getCountdownFrame(2.72), {
+    digit: 2,
+    stage: 'explode',
+    stageProgress: 0,
+    shieldProgress: 0,
+  });
   assert.deepEqual(getCountdownFrame(3.2), {
     digit: 1,
     stage: 'aggregate',
@@ -181,6 +193,7 @@ test('相同数字与四舍五入字号只采样一次并限制粒子数量', ()
   const renderer = createCountdownRenderer({
     context,
     createCanvas: () => createSamplingCanvas(reads),
+    maxParticles: 24,
   });
   const frame = getCountdownFrame(0.21);
 
@@ -188,8 +201,7 @@ test('相同数字与四舍五入字号只采样一次并限制粒子数量', ()
   const firstRects = context.calls.filter(
     ({ method }) => method === 'fillRect',
   );
-  assert.ok(firstRects.length > 0);
-  assert.ok(firstRects.length <= 180);
+  assert.equal(firstRects.length, 24);
 
   context.calls.length = 0;
   draw(renderer, frame, { fontSize: 48.4 });
@@ -198,7 +210,7 @@ test('相同数字与四舍五入字号只采样一次并限制粒子数量', ()
   );
 
   assert.equal(reads.count, 1);
-  assert.equal(secondRects.length, firstRects.length);
+  assert.equal(secondRects.length, 24);
 });
 
 test('爆炸粒子离开数字且回归粒子抵达玩家', () => {
@@ -256,6 +268,40 @@ test('离屏画布不可用时回退绘制实心数字', () => {
     context.calls.some(
       ({ method, text }) => method === 'fillText' && text === '3',
     ),
+  );
+});
+
+test('离屏画布不可用时回归数字精确移动到玩家', () => {
+  const context = createMainContext();
+  const renderer = createCountdownRenderer({
+    context,
+    createCanvas: () => null,
+  });
+  const frame = {
+    ...getCountdownFrame(5.5),
+    stageProgress: 1,
+  };
+
+  draw(renderer, frame, {
+    centerX: 80,
+    centerY: 70,
+    playerX: 260,
+    playerY: 190,
+  });
+
+  assert.deepEqual(
+    context.calls.filter(({ method }) => method === 'translate'),
+    [{ method: 'translate', x: 260, y: 190 }],
+  );
+  assert.equal(context.calls[0].method, 'save');
+  assert.equal(context.calls.at(-1).method, 'restore');
+  assert.equal(
+    context.calls.filter(({ method }) => method === 'save').length,
+    1,
+  );
+  assert.equal(
+    context.calls.filter(({ method }) => method === 'restore').length,
+    1,
   );
 });
 
