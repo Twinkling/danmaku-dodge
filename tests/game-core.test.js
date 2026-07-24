@@ -86,10 +86,10 @@ test('倒计时常量定义为指定秒数', () => {
   assert.equal(COUNTDOWN_SECONDS, 5.6);
 });
 
-test('getDifficulty 按时间返回连续分段难度', () => {
+test('getDifficulty 按时间返回分段难度', () => {
   const cases = [
-    [0, true, Number.POSITIVE_INFINITY, 0, 0],
-    [2.999, true, Number.POSITIVE_INFINITY, 0, 0],
+    [0, true, 1.25, 0.28, 4],
+    [2.999, true, 1.25, 0.28, 4],
     [3, false, 1.4, 0.45, 6],
     [11.5, false, 1.15, 0.575, 6],
     [20, false, 0.9, 0.7, 12],
@@ -893,6 +893,7 @@ test('碰撞后追平开局最高分不算新纪录', () => {
 test('结束后敌人冻结而粒子与震动自然结束', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
+  state.elapsed = OPENING_PROTECTION_SECONDS;
   state.enemies.push({
     x: state.player.x,
     y: state.player.y,
@@ -920,7 +921,7 @@ test('结束后敌人冻结而粒子与震动自然结束', () => {
   assert.equal(state.finalScore, collisionFinalScore);
 });
 
-test('开局保护允许移动并阻止刷怪', () => {
+test('开局保护允许移动并自然刷怪', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
   const initialPlayerX = state.player.x;
@@ -931,8 +932,27 @@ test('开局保护允许移动并阻止刷怪', () => {
 
   assert.ok(state.player.x > initialPlayerX);
   assert.ok(state.elapsed < 3);
-  assert.equal(state.enemies.length, 0);
-  assert.equal(state.spawnElapsed, 0);
+  assert.ok(state.enemies.length > 0);
+  assert.ok(state.spawnElapsed > 0);
+});
+
+test('开局保护期间敌人碰撞不会结束游戏', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 1;
+  state.enemies.push({
+    x: state.player.x,
+    y: state.player.y,
+    vx: 0,
+    vy: 0,
+    size: state.player.size,
+  });
+
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.enemies.length, 1);
+  assert.equal(state.particles.length, 0);
 });
 
 test('刷怪债务达到热身间隔时生成敌人', () => {
@@ -946,32 +966,60 @@ test('刷怪债务达到热身间隔时生成敌人', () => {
   assert.equal(state.enemies.length, 1);
 });
 
-test('固定步累加使保护边界落在第180与181步之间并于第262步自然首刷', () => {
+test('固定步累加使保护期内自然首刷且保护结束后延续节奏', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
   const random = () => 0.5;
 
-  for (let step = 1; step <= 179; step += 1) {
+  for (let step = 1; step < 75; step += 1) {
     stepGame(state, FIXED_STEP, noInput, random);
     assert.equal(getDifficulty(state.elapsed).protected, true);
     assert.equal(state.enemies.length, 0);
+  }
+
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 1);
+  const firstEnemyX = state.enemies[0].x;
+  const firstEnemyY = state.enemies[0].y;
+
+  for (let step = 76; step < 150; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 1);
+  }
+
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(
+    Math.hypot(
+      state.enemies[0].x - firstEnemyX,
+      state.enemies[0].y - firstEnemyY,
+    ) > 0,
+  );
+
+  for (let step = 151; step <= 179; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 2);
   }
 
   // 连续累加的第 180 步略小于 3 秒，第 181 步才首次解除保护。
   stepGame(state, FIXED_STEP, noInput, random);
   assertClose(state.elapsed, 3);
   assert.equal(getDifficulty(state.elapsed).protected, true);
-  assert.equal(state.enemies.length, 0);
-  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(state.spawnElapsed > 0);
 
   stepGame(state, FIXED_STEP, noInput, random);
   assert.equal(getDifficulty(state.elapsed).protected, false);
-  assert.equal(state.enemies.length, 0);
-  assertClose(state.spawnElapsed, FIXED_STEP);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(state.spawnElapsed > FIXED_STEP);
 
-  for (let step = 182; step < 262; step += 1) {
+  for (let step = 182; step < 233; step += 1) {
     stepGame(state, FIXED_STEP, noInput, random);
-    assert.equal(state.enemies.length, 0);
+    assert.equal(state.enemies.length, 2);
     assert.ok(
       state.spawnElapsed + 1e-9 <
         getDifficulty(state.elapsed).spawnInterval,
@@ -980,7 +1028,7 @@ test('固定步累加使保护边界落在第180与181步之间并于第262步�
 
   stepGame(state, FIXED_STEP, noInput, random);
 
-  assert.equal(state.enemies.length, 1);
+  assert.equal(state.enemies.length, 3);
 });
 
 test('敌人速度在生成时应用难度倍率', () => {
@@ -1118,6 +1166,7 @@ test('明显越界且继续向外移动的敌人会被清理', () => {
 test('碰撞检测不会阻止清理数组中更早的越界敌人', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
+  state.elapsed = OPENING_PROTECTION_SECONDS;
   const collisionEnemy = {
     x: state.player.x,
     y: state.player.y,

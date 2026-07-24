@@ -191,7 +191,7 @@ function spawnOneEnemyAt(elapsed, randomValues) {
   return { enemy: state.enemies[0], randomIndex, state };
 }
 
-test('开局保护允许移动并阻止刷怪', () => {
+test('开局保护允许移动并自然刷怪', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
   const initialX = state.player.x;
@@ -202,8 +202,8 @@ test('开局保护允许移动并阻止刷怪', () => {
 
   assert.ok(state.player.x > initialX);
   assert.ok(state.elapsed < OPENING_PROTECTION_SECONDS);
-  assert.equal(state.enemies.length, 0);
-  assert.equal(state.spawnElapsed, 0);
+  assert.ok(state.enemies.length > 0);
+  assert.ok(state.spawnElapsed > 0);
 });
 
 test('保护结束后按热身间隔生成首个敌人', () => {
@@ -626,8 +626,8 @@ Expected: `http://127.0.0.1:4174/` 返回 200。验证完成后使用 Ctrl-C 退
 在受控浏览器中验证：
 
 - 点击和 Enter 均可开始。
-- 前 3 秒显示“准备 3、2、1”，玩家可以移动，画面中没有敌人。
-- 保护结束后敌人开始生成。
+- 前 3 秒显示“准备 3、2、1”，玩家可以移动，画面中已有低速预热敌人。
+- 保护期碰撞不会结束游戏，保护结束后恢复正常碰撞。
 - 碰撞后出现结算页。
 - 点击和 Space 均可重开，并重新进入 3 秒保护期。
 - 页面 console 没有 error 或 warning。

@@ -11,6 +11,12 @@ const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
 const MAX_LOGICAL_DIMENSION = 100_000;
 const MIN_SPAWN_DISTANCE_FACTOR = 0.2;
 const MAX_SPAWN_ATTEMPTS = 8;
+const PROTECTION_SPAWN_INTERVAL = 1.25;
+const PROTECTION_SPEED_MULTIPLIER = 0.28;
+const PROTECTION_ENEMY_CAP = 4;
+const WARMUP_SPAWN_INTERVAL = 1.4;
+const WARMUP_SPEED_MULTIPLIER = 0.45;
+const WARMUP_ENEMY_CAP = 6;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -28,9 +34,9 @@ export function getDifficulty(elapsedSeconds) {
   if (elapsed < OPENING_PROTECTION_SECONDS) {
     return {
       protected: true,
-      spawnInterval: Number.POSITIVE_INFINITY,
-      speedMultiplier: 0,
-      enemyCap: 0,
+      spawnInterval: PROTECTION_SPAWN_INTERVAL,
+      speedMultiplier: PROTECTION_SPEED_MULTIPLIER,
+      enemyCap: PROTECTION_ENEMY_CAP,
     };
   }
 
@@ -41,17 +47,17 @@ export function getDifficulty(elapsedSeconds) {
         elapsed,
         OPENING_PROTECTION_SECONDS,
         20,
-        1.4,
+        WARMUP_SPAWN_INTERVAL,
         0.9,
       ),
       speedMultiplier: interpolate(
         elapsed,
         OPENING_PROTECTION_SECONDS,
         20,
-        0.45,
+        WARMUP_SPEED_MULTIPLIER,
         0.7,
       ),
-      enemyCap: 6,
+      enemyCap: WARMUP_ENEMY_CAP,
     };
   }
 
@@ -213,9 +219,7 @@ function endGame(state, random) {
 
 function updateEnemies(state, deltaTime, random) {
   const difficulty = getDifficulty(state.elapsed);
-  if (difficulty.protected) {
-    state.spawnElapsed = 0;
-  } else if (state.enemies.length >= difficulty.enemyCap) {
+  if (state.enemies.length >= difficulty.enemyCap) {
     state.spawnElapsed = 0;
   } else {
     state.spawnElapsed += deltaTime;
@@ -246,8 +250,9 @@ function updateEnemies(state, deltaTime, random) {
     ) {
       state.enemies.splice(index, 1);
     } else if (
+      !difficulty.protected &&
       Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y) <
-      state.player.size + enemy.size
+        state.player.size + enemy.size
     ) {
       collided = true;
     }
