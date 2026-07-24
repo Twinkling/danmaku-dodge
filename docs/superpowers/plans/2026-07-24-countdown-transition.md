@@ -317,7 +317,7 @@ test('倒计时帧会夹取非法和越界时间', () => {
 });
 ```
 
-### Step 2：为粒子采样、缓存、路径和降级写失败测试
+### Step 2：为粒子采样、按数字缓存、跨字号复用、路径和降级写失败测试
 
 - [ ] 在同一文件加入记录绘制调用的主 context：
 
@@ -375,7 +375,7 @@ function createSamplingCanvas(counter) {
   };
 }
 
-test('数字模板按数字和字号缓存且粒子数有上限', () => {
+test('数字模板按数字缓存，跨字号复用且粒子数有上限', () => {
   const context = createDrawingContext();
   const counter = { reads: 0 };
   const renderer = createCountdownRenderer({
@@ -388,12 +388,19 @@ test('数字模板按数字和字号缓存且粒子数有上限', () => {
     centerY: 210,
     playerX: 400,
     playerY: 300,
-    fontSize: 120,
   };
 
-  renderer.draw({ ...common, frame: getCountdownFrame(0.5) });
+  renderer.draw({
+    ...common,
+    frame: getCountdownFrame(0.5),
+    fontSize: 120,
+  });
   const firstCount = context.calls.filter(([name]) => name === 'fillRect').length;
-  renderer.draw({ ...common, frame: getCountdownFrame(0.7) });
+  renderer.draw({
+    ...common,
+    frame: getCountdownFrame(0.7),
+    fontSize: 240,
+  });
   const secondCount =
     context.calls.filter(([name]) => name === 'fillRect').length - firstCount;
 
@@ -492,6 +499,7 @@ export const COUNTDOWN_SHIELD_START_SECONDS = 5.2;
 
 const COUNTDOWN_RETURN_START_SECONDS = 4.8;
 const DEFAULT_MAX_PARTICLES = 180;
+const SAMPLE_FONT_SIZE = 192;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -601,7 +609,7 @@ function deterministicDirection(index) {
   };
 }
 
-function sampleDigit(createCanvas, digit, fontSize, maxParticles) {
+function sampleDigit(createCanvas, digit, maxParticles) {
   const canvas = createCanvas?.();
   const samplingContext = canvas?.getContext?.('2d');
 
@@ -609,19 +617,19 @@ function sampleDigit(createCanvas, digit, fontSize, maxParticles) {
     return null;
   }
 
-  const width = Math.max(1, Math.ceil(fontSize * 1.15));
-  const height = Math.max(1, Math.ceil(fontSize * 1.35));
+  const width = Math.round(SAMPLE_FONT_SIZE * 1.15);
+  const height = Math.round(SAMPLE_FONT_SIZE * 1.35);
   canvas.width = width;
   canvas.height = height;
   samplingContext.clearRect?.(0, 0, width, height);
   samplingContext.fillStyle = '#ffffff';
-  samplingContext.font = `900 ${fontSize}px -apple-system, Arial, sans-serif`;
+  samplingContext.font = `900 ${SAMPLE_FONT_SIZE}px -apple-system, Arial, sans-serif`;
   samplingContext.textAlign = 'center';
   samplingContext.textBaseline = 'middle';
   samplingContext.fillText(String(digit), width / 2, height / 2);
 
   const imageData = samplingContext.getImageData(0, 0, width, height);
-  const spacing = Math.max(3, Math.round(fontSize / 28));
+  const spacing = Math.max(3, Math.round(SAMPLE_FONT_SIZE / 28));
   const points = [];
 
   for (let y = spacing / 2; y < height; y += spacing) {
@@ -631,8 +639,8 @@ function sampleDigit(createCanvas, digit, fontSize, maxParticles) {
       const alpha = imageData.data[(pixelY * width + pixelX) * 4 + 3];
       if (alpha > 64) {
         points.push({
-          x: x - width / 2,
-          y: y - height / 2,
+          x: (x - width / 2) / SAMPLE_FONT_SIZE,
+          y: (y - height / 2) / SAMPLE_FONT_SIZE,
         });
       }
     }
@@ -691,8 +699,8 @@ function drawParticles(context, frame, points, geometry) {
     const direction = deterministicDirection(index);
     const startDistance =
       geometry.fontSize * (1.25 + (index % 7) * 0.08);
-    const assembledX = geometry.centerX + point.x;
-    const assembledY = geometry.centerY + point.y;
+    const assembledX = geometry.centerX + point.x * geometry.fontSize;
+    const assembledY = geometry.centerY + point.y * geometry.fontSize;
     const startX = assembledX + direction.x * startDistance;
     const startY = assembledY + direction.y * startDistance;
     const explodedX =
@@ -735,22 +743,19 @@ export function createCountdownRenderer({
 }) {
   const cache = new Map();
 
-  function pointsFor(digit, fontSize) {
-    const roundedFontSize = Math.max(1, Math.round(fontSize));
-    const key = `${digit}:${roundedFontSize}`;
-    if (cache.has(key)) return cache.get(key);
+  function pointsFor(digit) {
+    if (cache.has(digit)) return cache.get(digit);
 
     try {
       const points = sampleDigit(
         createCanvas,
         digit,
-        roundedFontSize,
         maxParticles,
       );
-      cache.set(key, points);
+      cache.set(digit, points);
       return points;
     } catch {
-      cache.set(key, null);
+      cache.set(digit, null);
       return null;
     }
   }
@@ -766,7 +771,7 @@ export function createCountdownRenderer({
         playerY,
         fontSize,
       };
-      const points = pointsFor(frame.digit, fontSize);
+      const points = pointsFor(frame.digit);
 
       if (!points || points.length === 0) {
         drawFallback(context, frame, geometry);
@@ -820,7 +825,7 @@ git diff --check
 
 ### Step 7：自检并提交
 
-- [ ] 确认同一数字与字号只读取一次像素。
+- [ ] 确认同一数字跨字号只读取一次像素，离屏采样尺寸固定有界。
 - [ ] 确认最大粒子数默认是 180。
 - [ ] 确认 `3`、`2` 才进入 `explode`，`1` 只进入 `aggregate`、`hold`、`return`。
 - [ ] 确认模块不读写游戏 state，也不调用随机数。
