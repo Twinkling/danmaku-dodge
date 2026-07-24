@@ -339,7 +339,32 @@ export function createBrowserGame({
     context.restore();
   }
 
+  function drawPredictiveEnemy(enemy) {
+    context.fillStyle = '#ff6438';
+    context.beginPath();
+    context.moveTo(enemy.x, enemy.y - enemy.size);
+    context.lineTo(enemy.x + enemy.size, enemy.y);
+    context.lineTo(enemy.x, enemy.y + enemy.size);
+    context.lineTo(enemy.x - enemy.size, enemy.y);
+    context.lineTo(enemy.x, enemy.y - enemy.size);
+    context.fill();
+    const highlightSize = enemy.size * 0.35;
+    context.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    context.beginPath();
+    context.moveTo(enemy.x, enemy.y - highlightSize);
+    context.lineTo(enemy.x + highlightSize, enemy.y);
+    context.lineTo(enemy.x, enemy.y + highlightSize);
+    context.lineTo(enemy.x - highlightSize, enemy.y);
+    context.lineTo(enemy.x, enemy.y - highlightSize);
+    context.fill();
+  }
+
   function drawEnemy(enemy) {
+    if (enemy.type === 'predictive') {
+      drawPredictiveEnemy(enemy);
+      return;
+    }
+
     context.fillStyle = enemy.color;
     context.beginPath();
     context.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);

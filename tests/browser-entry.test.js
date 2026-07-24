@@ -69,6 +69,17 @@ function createContext() {
     },
   };
 
+  let fillStyle = '';
+  Object.defineProperty(context, 'fillStyle', {
+    get() {
+      return fillStyle;
+    },
+    set(value) {
+      fillStyle = value;
+      calls.push(['fillStyle', value]);
+    },
+  });
+
   for (const method of [
     'setTransform',
     'save',
@@ -968,6 +979,37 @@ test('document 缺少 createElement 时使用实心数字并仍可进入运行�
   environment.runNextFrame(1_000);
   assert.doesNotThrow(() => environment.runNextFrame(1_017));
   assert.equal(game.getState().phase, 'running');
+});
+
+test('预判型敌人绘制为橙红菱形且未知类型回退圆形', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+  const state = game.getState();
+  state.phase = 'running';
+  state.elapsed = 10;
+  state.enemies.push(
+    { type: 'predictive', x: 100, y: 120, size: 10, color: '#fff' },
+    { type: 'normal', x: 200, y: 120, size: 10, color: '#0f0' },
+    { type: 'future-type', x: 300, y: 120, size: 10, color: '#00f' },
+  );
+
+  environment.runNextFrame(0);
+
+  assert.ok(environment.context.calls.some(
+    ([method, value]) => method === 'fillStyle' && value === '#ff6438',
+  ));
+  assert.ok(environment.context.calls.some(
+    ([method, x, y]) => method === 'moveTo' && x === 100 && y === 110,
+  ));
+  assert.ok(environment.context.calls.some(
+    ([method, x, y, radius]) => method === 'arc' && x === 200 && y === 120 && radius === 10,
+  ));
+  assert.ok(environment.context.calls.some(
+    ([method, x, y, radius]) => method === 'arc' && x === 300 && y === 120 && radius === 10,
+  ));
 });
 
 test('正常 Canvas 桩可执行空闲、倒计时、运行与结束渲染路径', async () => {
