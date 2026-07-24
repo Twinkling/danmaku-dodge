@@ -10,7 +10,6 @@ import {
 
 const rootUrl = new URL('../', import.meta.url);
 const htmlUrl = new URL('index.html', rootUrl);
-const gameUrl = new URL('src/game.js', rootUrl);
 const MAX_BACKING_STORE_SIDE = 8_192;
 const MAX_BACKING_STORE_PIXELS = 16_777_216;
 
@@ -916,12 +915,7 @@ test('离屏 Canvas 不可用时使用实心数字并仍可进入运行阶段', 
   assert.equal(game.getState().phase, 'running');
 });
 
-test('document 缺少 createElement 时使用实心数字并仍可进入运行阶段', async () => {
-  const source = await readFile(gameUrl, 'utf8');
-  assert.ok(
-    source.includes("documentObject.createElement?.('canvas')"),
-    '入口应以可选调用访问 document.createElement',
-  );
+test('document 缺少 createElement 时使用实心数字并仍可进入运行阶段', () => {
   const environment = createEnvironment();
   delete environment.documentObject.createElement;
   const game = createBrowserGame({
