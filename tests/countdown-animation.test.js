@@ -463,6 +463,44 @@ test('离屏画布不可用时回归数字精确移动到玩家', () => {
   );
 });
 
+test('离屏画布不可用时回归中段数字可见且位于中心与玩家之间', () => {
+  const context = createMainContext();
+  const renderer = createCountdownRenderer({
+    context,
+    createCanvas: () => null,
+  });
+  const frame = {
+    ...getCountdownFrame(5.2),
+    stageProgress: 0.5,
+  };
+
+  draw(renderer, frame, {
+    centerX: 80,
+    centerY: 70,
+    playerX: 260,
+    playerY: 190,
+  });
+
+  const translation = context.calls.find(
+    ({ method }) => method === 'translate',
+  );
+  assert.ok(translation.x > 80 && translation.x < 260);
+  assert.ok(translation.y > 70 && translation.y < 190);
+  assert.ok(Math.abs(translation.x - 170) < 1e-12);
+  assert.ok(Math.abs(translation.y - 130) < 1e-12);
+
+  const textCall = context.calls.find(
+    ({ method }) => method === 'fillText',
+  );
+  assert.ok(Number.isFinite(textCall.globalAlpha));
+  assert.ok(textCall.globalAlpha > 0);
+  assert.ok(Math.abs(textCall.globalAlpha - 0.5) < 1e-12);
+  assert.equal(
+    context.calls.filter(({ method }) => method === 'save').length,
+    context.calls.filter(({ method }) => method === 'restore').length,
+  );
+});
+
 test('像素读取失败会缓存降级结果且不会重复尝试', () => {
   const context = createMainContext();
   let reads = 0;
