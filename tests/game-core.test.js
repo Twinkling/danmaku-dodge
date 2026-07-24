@@ -320,6 +320,33 @@ test('倒计时边界只切换阶段并在下一固定步开始游戏', () => {
   assert.ok(state.player.x > 400);
 });
 
+test('advanceGame 在倒计时边界保留固定步余量', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  const input = { ...keyboardRight };
+  startCountdown(state);
+  state.countdownElapsed = COUNTDOWN_SECONDS - FIXED_STEP;
+
+  advanceGame(state, FIXED_STEP / 2, input, () => 0.5);
+
+  assert.equal(state.phase, 'countdown');
+  assertClose(state.accumulator, FIXED_STEP / 2);
+
+  advanceGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.spawnElapsed, 0);
+  assert.deepEqual(state.enemies, []);
+  assertClose(state.accumulator, FIXED_STEP / 2);
+
+  advanceGame(state, FIXED_STEP / 2, input, () => 0.5);
+
+  assertClose(state.elapsed, FIXED_STEP);
+  assert.ok(state.player.x > 400);
+  assertClose(state.accumulator, 0);
+});
+
 test('resizeGame 按新旧画布比例迁移空间状态', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
