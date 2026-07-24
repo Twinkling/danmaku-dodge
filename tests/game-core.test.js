@@ -239,6 +239,7 @@ test('startCountdown 原地重置新一局状态并保留开局最高分', () =>
   const state = createGameState({ width: 800, height: 600, bestScore: 9 });
   state.phase = 'gameover';
   state.accumulator = 0.4;
+  state.countdownElapsed = 4.2;
   state.player = { x: 123, y: 456, size: 7 };
   state.elapsed = 12.7;
   state.spawnElapsed = 0.6;
