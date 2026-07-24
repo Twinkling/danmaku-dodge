@@ -14,6 +14,9 @@ const MAX_SPAWN_ATTEMPTS = 8;
 const WARMUP_SPAWN_INTERVAL = 1.4;
 const WARMUP_SPEED_MULTIPLIER = 0.45;
 const WARMUP_ENEMY_CAP = 6;
+const PREDICTIVE_LEAD_SECONDS = 0.6;
+const NORMAL_TARGET_JITTER_FACTOR = 0.25;
+const PREDICTIVE_TARGET_JITTER_FACTOR = 0.1;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -46,6 +49,7 @@ export function getDifficulty(elapsedSeconds) {
         0.7,
       ),
       enemyCap: WARMUP_ENEMY_CAP,
+      predictiveRatio: 0,
     };
   }
 
@@ -55,6 +59,7 @@ export function getDifficulty(elapsedSeconds) {
       spawnInterval: interpolate(elapsed, 20, 55, 0.9, 0.55),
       speedMultiplier: interpolate(elapsed, 20, 55, 0.7, 1),
       enemyCap: 12,
+      predictiveRatio: 0.25,
     };
   }
 
@@ -64,6 +69,7 @@ export function getDifficulty(elapsedSeconds) {
       spawnInterval: interpolate(elapsed, 55, 90, 0.55, 0.32),
       speedMultiplier: interpolate(elapsed, 55, 90, 1, 1.3),
       enemyCap: 18,
+      predictiveRatio: 0.5,
     };
   }
 
@@ -72,6 +78,7 @@ export function getDifficulty(elapsedSeconds) {
     spawnInterval: 0.32,
     speedMultiplier: 1.3,
     enemyCap: 18,
+    predictiveRatio: 0.75,
   };
 }
 
@@ -80,6 +87,9 @@ function clampPlayerAxis(value, size, extent) {
 }
 
 function updatePlayer(state, deltaTime, input) {
+  const previousX = state.player.x;
+  const previousY = state.player.y;
+
   if (input?.mode === 'keyboard') {
     const horizontal = Number(Boolean(input.right)) - Number(Boolean(input.left));
     const vertical = Number(Boolean(input.down)) - Number(Boolean(input.up));
@@ -111,6 +121,14 @@ function updatePlayer(state, deltaTime, input) {
     state.player.size,
     state.height,
   );
+
+  if (deltaTime > 0) {
+    state.player.vx = (state.player.x - previousX) / deltaTime;
+    state.player.vy = (state.player.y - previousY) / deltaTime;
+  } else {
+    state.player.vx = 0;
+    state.player.vy = 0;
+  }
 }
 
 function createSpawnPoint(state, random, margin) {
@@ -129,7 +147,7 @@ function createSpawnPoint(state, random, margin) {
   return { x: -margin, y: offset * state.height };
 }
 
-function spawnEnemy(state, random, speedMultiplier) {
+function spawnEnemy(state, random, difficulty) {
   const shortEdge = Math.min(state.width, state.height);
   const margin = shortEdge * 0.05;
   const minimumDistance = shortEdge * MIN_SPAWN_DISTANCE_FACTOR;
@@ -152,14 +170,43 @@ function spawnEnemy(state, random, speedMultiplier) {
     return false;
   }
 
+  const type =
+    difficulty.predictiveRatio > 0 && random() < difficulty.predictiveRatio
+      ? 'predictive'
+      : 'normal';
+  const targetX =
+    type === 'predictive'
+      ? clampPlayerAxis(
+          state.player.x +
+            (Number.isFinite(state.player.vx) ? state.player.vx : 0) *
+              PREDICTIVE_LEAD_SECONDS,
+          state.player.size,
+          state.width,
+        )
+      : state.player.x;
+  const targetY =
+    type === 'predictive'
+      ? clampPlayerAxis(
+          state.player.y +
+            (Number.isFinite(state.player.vy) ? state.player.vy : 0) *
+              PREDICTIVE_LEAD_SECONDS,
+          state.player.size,
+          state.height,
+        )
+      : state.player.y;
+  const jitterFactor =
+    type === 'predictive'
+      ? PREDICTIVE_TARGET_JITTER_FACTOR
+      : NORMAL_TARGET_JITTER_FACTOR;
+
   const dx =
-    state.player.x - spawnPoint.x + (random() - 0.5) * shortEdge * 0.25;
+    targetX - spawnPoint.x + (random() - 0.5) * shortEdge * jitterFactor;
   const dy =
-    state.player.y - spawnPoint.y + (random() - 0.5) * shortEdge * 0.25;
+    targetY - spawnPoint.y + (random() - 0.5) * shortEdge * jitterFactor;
   const distance = Math.hypot(dx, dy) || 1;
   const baseSpeed = shortEdge * 0.006 * 60;
   const speed =
-    (baseSpeed + random() * baseSpeed * 1.5) * speedMultiplier;
+    (baseSpeed + random() * baseSpeed * 1.5) * difficulty.speedMultiplier;
 
   state.enemies.push({
     x: spawnPoint.x,
@@ -168,6 +215,7 @@ function spawnEnemy(state, random, speedMultiplier) {
     vy: (dy / distance) * speed,
     size: shortEdge * (0.01 + random() * 0.016),
     color: `hsl(${random() * 360}, 80%, 55%)`,
+    type,
   });
 
   return true;
@@ -216,7 +264,7 @@ function updateEnemies(state, deltaTime, random) {
         0,
         state.spawnElapsed - difficulty.spawnInterval,
       );
-      if (!spawnEnemy(state, random, difficulty.speedMultiplier)) {
+      if (!spawnEnemy(state, random, difficulty)) {
         state.spawnElapsed = 0;
       }
     }
@@ -307,6 +355,8 @@ export function createGameState({ width, height, bestScore = 0 }) {
       x: validWidth / 2,
       y: validHeight / 2,
       size: playerSize(validWidth, validHeight),
+      vx: 0,
+      vy: 0,
     },
     enemies: [],
     particles: [],
@@ -332,6 +382,12 @@ export function resizeGame(state, width, height) {
   state.player.x *= xRatio;
   state.player.y *= yRatio;
   state.player.size = playerSize(safeWidth, safeHeight);
+  state.player.vx = Number.isFinite(state.player.vx)
+    ? state.player.vx * sizeRatio
+    : 0;
+  state.player.vy = Number.isFinite(state.player.vy)
+    ? state.player.vy * sizeRatio
+    : 0;
 
   for (const enemy of state.enemies) {
     enemy.x *= xRatio;
@@ -371,6 +427,8 @@ function resetRound(state) {
     x: state.width / 2,
     y: state.height / 2,
     size: playerSize(state.width, state.height),
+    vx: 0,
+    vy: 0,
   };
   state.enemies = [];
   state.particles = [];

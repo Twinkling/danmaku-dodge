@@ -64,6 +64,21 @@ function spawnOneEnemyAt(elapsed, randomValues) {
   return { enemy: state.enemies[0], randomIndex, state };
 }
 
+function spawnMovingEnemy(typeRandom) {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 20;
+  state.spawnElapsed = getDifficulty(state.elapsed).spawnInterval;
+  const randomValues = [0, 0.5, typeRandom, 0.5, 0.5, 0.5, 0.5, 0.125];
+  let randomIndex = 0;
+
+  stepGame(state, FIXED_STEP, keyboardRight, () => randomValues[randomIndex++]);
+
+  assert.equal(state.enemies.length, 1);
+  assert.equal(randomIndex, randomValues.length);
+  return { enemy: state.enemies[0], state };
+}
+
 function assertSpatialStateIsFinite(state) {
   for (const field of ['x', 'y', 'size']) {
     assert.equal(Number.isFinite(state.player[field]), true);
@@ -88,16 +103,16 @@ test('倒计时常量定义为指定秒数', () => {
 
 test('getDifficulty 按时间返回分段难度', () => {
   const cases = [
-    [0, true, 1.4, 0.45, 6],
-    [2.999, true, 1.325025, 0.4874875, 6],
-    [3, false, 1.325, 0.4875, 6],
-    [10, false, 1.15, 0.575, 6],
-    [20, false, 0.9, 0.7, 12],
-    [37.5, false, 0.725, 0.85, 12],
-    [55, false, 0.55, 1, 18],
-    [72.5, false, 0.435, 1.15, 18],
-    [90, false, 0.32, 1.3, 18],
-    [300, false, 0.32, 1.3, 18],
+    [0, true, 1.4, 0.45, 6, 0],
+    [2.999, true, 1.325025, 0.4874875, 6, 0],
+    [3, false, 1.325, 0.4875, 6, 0],
+    [10, false, 1.15, 0.575, 6, 0],
+    [20, false, 0.9, 0.7, 12, 0.25],
+    [37.5, false, 0.725, 0.85, 12, 0.25],
+    [55, false, 0.55, 1, 18, 0.5],
+    [72.5, false, 0.435, 1.15, 18, 0.5],
+    [90, false, 0.32, 1.3, 18, 0.75],
+    [300, false, 0.32, 1.3, 18, 0.75],
   ];
 
   for (const [
@@ -106,11 +121,13 @@ test('getDifficulty 按时间返回分段难度', () => {
     expectedSpawnInterval,
     expectedSpeedMultiplier,
     expectedEnemyCap,
+    expectedPredictiveRatio,
   ] of cases) {
     const difficulty = getDifficulty(elapsedSeconds);
 
     assert.deepEqual(Object.keys(difficulty).sort(), [
       'enemyCap',
+      'predictiveRatio',
       'protected',
       'spawnInterval',
       'speedMultiplier',
@@ -123,6 +140,7 @@ test('getDifficulty 按时间返回分段难度', () => {
     }
     assertClose(difficulty.speedMultiplier, expectedSpeedMultiplier);
     assert.equal(difficulty.enemyCap, expectedEnemyCap);
+    assert.equal(difficulty.predictiveRatio, expectedPredictiveRatio);
   }
 });
 
@@ -149,6 +167,8 @@ test('createGameState 初始化空闲状态并规范化最高分', () => {
   assert.equal(state.player.x, 400);
   assert.equal(state.player.y, 300);
   assert.ok(Math.abs(state.player.size - 10.8) < Number.EPSILON * 10.8);
+  assert.equal(state.player.vx, 0);
+  assert.equal(state.player.vy, 0);
   assert.deepEqual(state.enemies, []);
   assert.deepEqual(state.particles, []);
   assert.equal(state.countdownElapsed, 0);
@@ -224,6 +244,8 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.equal(state.player.x, 320);
   assert.equal(state.player.y, 240);
   assert.ok(Math.abs(state.player.size - 8.64) < Number.EPSILON * 8.64);
+  assert.equal(state.player.vx, 0);
+  assert.equal(state.player.vy, 0);
   assert.deepEqual(state.enemies, []);
   assert.deepEqual(state.particles, []);
   assert.equal(state.elapsed, 0);
@@ -264,6 +286,8 @@ test('startCountdown 原地重置新一局状态并保留开局最高分', () =>
   assert.equal(state.player.x, 400);
   assert.equal(state.player.y, 300);
   assert.equal(state.player.size, playerSize(800, 600));
+  assert.equal(state.player.vx, 0);
+  assert.equal(state.player.vy, 0);
   assert.equal(state.shake, 0);
   assert.equal(state.bestScore, 9);
   assert.equal(state.bestScoreAtStart, 9);
@@ -352,6 +376,8 @@ test('resizeGame 按新旧画布比例迁移空间状态', () => {
   startGame(state);
   state.player.x = 200;
   state.player.y = 150;
+  state.player.vx = 120;
+  state.player.vy = 60;
   state.enemies.push({
     x: 100,
     y: 90,
@@ -374,7 +400,7 @@ test('resizeGame 按新旧画布比例迁移空间状态', () => {
 
   assert.equal(state.width, 400);
   assert.equal(state.height, 300);
-  assert.deepEqual(state.player, { x: 100, y: 75, size: 8 });
+  assert.deepEqual(state.player, { x: 100, y: 75, size: 8, vx: 60, vy: 30 });
   assert.deepEqual(state.enemies[0], {
     x: 50,
     y: 45,
@@ -423,6 +449,15 @@ test('resizeGame 将非法或极小目标尺寸规范为有限的最小状态', 
   assert.equal(Number.isFinite(state.shake), true);
   assert.equal(state.shake, 12 / 240);
   assertSpatialStateIsFinite(state);
+});
+
+test('resizeGame 将旧玩家对象的非有限速度安全归零', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  state.player = { x: 200, y: 150, size: 10 };
+
+  resizeGame(state, 400, 300);
+
+  assert.deepEqual(state.player, { x: 100, y: 75, size: 8, vx: 0, vy: 0 });
 });
 
 test('resizeGame 往返极小正数尺寸时始终保持空间状态有限', () => {
@@ -690,6 +725,19 @@ test('玩家移动始终限制在游戏边界内', () => {
   stepGame(state, 1, keyboardRight, () => 0.5);
 
   assert.equal(state.player.x, state.width - state.player.size);
+});
+
+test('玩家记录固定步中的实际速度并在停止后归零', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+
+  stepGame(state, FIXED_STEP, keyboardRight, () => 0.5);
+  assert.equal(state.player.vx, 600 * 0.65);
+  assert.equal(state.player.vy, 0);
+
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+  assert.equal(state.player.vx, 0);
+  assert.equal(state.player.vy, 0);
 });
 
 test('指针目标缺失或非有限时整次忽略移动', () => {
@@ -983,18 +1031,67 @@ test('保护期沿用热身刷怪且保护结束不重置积累', () => {
 });
 
 test('敌人速度在生成时应用难度倍率', () => {
-  const randomValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
-  const warmup = spawnOneEnemyAt(3, randomValues);
-  const intense = spawnOneEnemyAt(90, randomValues);
+  const warmupValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
+  const intenseValues = [0, 0.5, 0.9, 0.5, 0.5, 0.5, 0.5, 0.125];
+  const warmup = spawnOneEnemyAt(0, warmupValues);
+  const intense = spawnOneEnemyAt(90, intenseValues);
   const warmupSpeed = Math.hypot(warmup.enemy.vx, warmup.enemy.vy);
   const intenseSpeed = Math.hypot(intense.enemy.vx, intense.enemy.vy);
 
-  assert.equal(warmup.randomIndex, randomValues.length);
-  assert.equal(intense.randomIndex, randomValues.length);
+  assert.equal(warmup.randomIndex, warmupValues.length);
+  assert.equal(intense.randomIndex, intenseValues.length);
   assertClose(
     intenseSpeed / warmupSpeed,
-    getDifficulty(90).speedMultiplier / getDifficulty(3).speedMultiplier,
+    getDifficulty(90).speedMultiplier / getDifficulty(0).speedMultiplier,
   );
+});
+
+test('各阶段按预判比例选择敌人类型并保持随机序列消费', () => {
+  const cases = [
+    [20, 0.249, 'predictive'],
+    [20, 0.25, 'normal'],
+    [55, 0.499, 'predictive'],
+    [55, 0.5, 'normal'],
+    [90, 0.749, 'predictive'],
+    [90, 0.75, 'normal'],
+  ];
+
+  for (const [elapsed, typeRandom, expectedType] of cases) {
+    const values = [0, 0.5, typeRandom, 0.5, 0.5, 0.5, 0.5, 0.125];
+    const result = spawnOneEnemyAt(elapsed, values);
+
+    assert.equal(result.enemy.type, expectedType);
+    assert.equal(result.randomIndex, values.length);
+  }
+
+  const warmupValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
+  const warmup = spawnOneEnemyAt(19.999, warmupValues);
+  assert.equal(warmup.enemy.type, 'normal');
+  assert.equal(warmup.randomIndex, warmupValues.length);
+});
+
+test('预判型敌人瞄准玩家约零点六秒后的预计位置', () => {
+  const predictive = spawnMovingEnemy(0).enemy;
+  const normal = spawnMovingEnemy(0.9).enemy;
+
+  assert.equal(predictive.type, 'predictive');
+  assert.equal(normal.type, 'normal');
+  assertClose(
+    Math.hypot(predictive.vx, predictive.vy),
+    Math.hypot(normal.vx, normal.vy),
+  );
+  assert.ok(predictive.vx / predictive.vy > normal.vx / normal.vy);
+});
+
+test('预判型敌人出生后不再修正方向', () => {
+  const { enemy, state } = spawnMovingEnemy(0);
+  const { vx, vy } = enemy;
+  state.spawnElapsed = 0;
+
+  stepGame(state, FIXED_STEP, { ...keyboardRight, right: false, left: true }, () => 0.5);
+
+  assert.equal(enemy.vx, vx);
+  assert.equal(enemy.vy, vy);
 });
 
 test('达到敌人上限时清空刷怪积累且不补刷', () => {
@@ -1093,6 +1190,7 @@ test('注入的随机序列能确定敌人从四条边界外生成', () => {
     assert.equal(state.enemies.length, 1);
     const [enemy] = state.enemies;
     assert.equal(isOutsideSide[side](enemy), true);
+    assert.equal(enemy.type, 'normal');
     for (const field of ['x', 'y', 'vx', 'vy', 'size']) {
       assert.equal(Number.isFinite(enemy[field]), true);
     }
