@@ -1,15 +1,22 @@
 import {
   advanceGame,
   createGameState,
+  OPENING_PROTECTION_SECONDS,
   resizeGame,
   sanitizeBestScore,
-  startGame,
+  startCountdown,
 } from './game-core.js';
+import {
+  createCountdownRenderer,
+  getCountdownFrame,
+} from './countdown-animation.js';
 
 const STORAGE_KEY = 'dodgeBestScoreV2';
 const MAX_LOGICAL_DIMENSION = 100_000;
 const MAX_BACKING_STORE_SIDE = 8_192;
 const MAX_BACKING_STORE_PIXELS = 16_777_216;
+const COUNTDOWN_CENTER_OFFSET = 2.6;
+const COUNTDOWN_FONT_SCALE = 2.2;
 
 function backingStoreScale(logicalWidth, logicalHeight, requestedDpr) {
   const sideScale = Math.min(
@@ -31,6 +38,14 @@ export function createBrowserGame({
   const canvas = documentObject.getElementById('game');
   const status = documentObject.getElementById('game-status');
   const context = canvas.getContext('2d');
+  const countdownRenderer =
+    context === null
+      ? null
+      : createCountdownRenderer({
+          context,
+          createCanvas: () =>
+            documentObject.createElement?.('canvas') ?? null,
+        });
 
   function readBestScore() {
     try {
@@ -158,8 +173,12 @@ export function createBrowserGame({
     }
 
     previousTimestamp = undefined;
-    startGame(state);
-    status.textContent = '游戏开始';
+    startCountdown(state);
+    status.textContent = '倒计时开始';
+  }
+
+  function canBeginGame() {
+    return state.phase === 'idle' || state.phase === 'gameover';
   }
 
   function handlePointerDown(event) {
@@ -174,7 +193,7 @@ export function createBrowserGame({
     canvas.focus({ preventScroll: true });
     updatePointer(event);
 
-    if (state.phase !== 'running') {
+    if (canBeginGame()) {
       beginGame();
     }
   }
@@ -241,12 +260,11 @@ export function createBrowserGame({
   ]);
 
   function handleKeyDown(event) {
-    if (
-      state.phase !== 'running' &&
-      (event.code === 'Enter' || event.code === 'Space')
-    ) {
+    if (event.code === 'Enter' || event.code === 'Space') {
       event.preventDefault();
-      beginGame();
+      if (canBeginGame()) {
+        beginGame();
+      }
       return;
     }
 
@@ -348,8 +366,21 @@ export function createBrowserGame({
     context.globalAlpha = 1;
   }
 
-  function drawPlayer() {
+  function drawPlayer(shieldProgress = 0) {
     const { x, y, size } = state.player;
+    const progress = clamp(shieldProgress, 0, 1);
+
+    if (progress > 0) {
+      const eased = 1 - (1 - progress) ** 3;
+      const pulse = 1 + Math.sin(Date.now() / 120) * 0.08;
+      const radius = size * (1.6 + (2.35 - 1.6) * eased);
+      context.globalAlpha = eased;
+      context.fillStyle = 'rgba(0, 220, 255, 0.16)';
+      context.beginPath();
+      context.arc(x, y, radius * pulse, 0, Math.PI * 2);
+      context.fill();
+      context.globalAlpha = 1;
+    }
 
     context.fillStyle = 'rgba(0, 220, 255, 0.3)';
     context.beginPath();
@@ -367,7 +398,7 @@ export function createBrowserGame({
     );
   }
 
-  function drawWorld() {
+  function drawWorld(countdownFrame) {
     context.save();
     context.globalAlpha = 1;
 
@@ -383,8 +414,10 @@ export function createBrowserGame({
     for (const particle of state.particles) {
       drawParticle(particle);
     }
-    if (state.phase === 'running') {
-      drawPlayer();
+    if (state.phase === 'countdown') {
+      drawPlayer(countdownFrame?.shieldProgress ?? 0);
+    } else if (state.phase === 'running') {
+      drawPlayer(state.elapsed < OPENING_PROTECTION_SECONDS ? 1 : 0);
     }
 
     context.globalAlpha = 1;
@@ -486,7 +519,7 @@ export function createBrowserGame({
     context.globalAlpha = 1;
   }
 
-  function drawOverlay(metrics) {
+  function drawOverlay(metrics, countdownFrame) {
     context.save();
     context.globalAlpha = 1;
 
@@ -494,6 +527,15 @@ export function createBrowserGame({
       drawIdleOverlay(metrics);
     } else if (state.phase === 'gameover') {
       drawGameOverOverlay(metrics);
+    } else if (state.phase === 'countdown') {
+      countdownRenderer.draw({
+        frame: countdownFrame,
+        centerX: metrics.centerX,
+        centerY: metrics.centerY - metrics.fontSize * COUNTDOWN_CENTER_OFFSET,
+        playerX: state.player.x,
+        playerY: state.player.y,
+        fontSize: metrics.fontSize * COUNTDOWN_FONT_SCALE,
+      });
     }
 
     context.globalAlpha = 1;
@@ -502,11 +544,15 @@ export function createBrowserGame({
 
   function draw() {
     const metrics = getUiMetrics();
+    const countdownFrame =
+      state.phase === 'countdown'
+        ? getCountdownFrame(state.countdownElapsed)
+        : null;
 
     drawBackground();
-    drawWorld();
+    drawWorld(countdownFrame);
     drawHud(metrics);
-    drawOverlay(metrics);
+    drawOverlay(metrics, countdownFrame);
     context.globalAlpha = 1;
   }
 
@@ -527,7 +573,9 @@ export function createBrowserGame({
 
     advanceGame(state, elapsed, input);
 
-    if (previousPhase === 'running' && state.phase === 'gameover') {
+    if (previousPhase === 'countdown' && state.phase === 'running') {
+      status.textContent = '游戏开始';
+    } else if (previousPhase === 'running' && state.phase === 'gameover') {
       if (state.bestScore > persistedBestScore) {
         writeBestScore(state.bestScore);
         persistedBestScore = state.bestScore;

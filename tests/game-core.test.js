@@ -2,13 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COUNTDOWN_DIGIT_SECONDS,
+  COUNTDOWN_SECONDS,
+  COUNTDOWN_TRANSFER_SECONDS,
   FIXED_STEP,
-  INITIAL_SPAWN_INTERVAL,
-  MIN_SPAWN_INTERVAL,
-  SPAWN_INTERVAL_DECREASE,
+  OPENING_PROTECTION_SECONDS,
   advanceGame,
   createGameState,
+  getDifficulty,
+  playerSize,
   resizeGame,
+  startCountdown,
   startGame,
   stepGame,
 } from '../src/game-core.js';
@@ -47,6 +51,19 @@ function assertClose(actual, expected, tolerance = 1e-9) {
   );
 }
 
+function spawnOneEnemyAt(elapsed, randomValues) {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = elapsed;
+  state.spawnElapsed = getDifficulty(elapsed).spawnInterval;
+  let randomIndex = 0;
+
+  stepGame(state, 0, noInput, () => randomValues[randomIndex++]);
+
+  assert.equal(state.enemies.length, 1);
+  return { enemy: state.enemies[0], randomIndex, state };
+}
+
 function assertSpatialStateIsFinite(state) {
   for (const field of ['x', 'y', 'size']) {
     assert.equal(Number.isFinite(state.player[field]), true);
@@ -58,6 +75,69 @@ function assertSpatialStateIsFinite(state) {
   }
   assert.equal(Number.isFinite(state.shake), true);
 }
+
+test('OPENING_PROTECTION_SECONDS 定义为 3 秒', () => {
+  assert.equal(OPENING_PROTECTION_SECONDS, 3);
+});
+
+test('倒计时常量定义为指定秒数', () => {
+  assert.equal(COUNTDOWN_DIGIT_SECONDS, 1.6);
+  assert.equal(COUNTDOWN_TRANSFER_SECONDS, 0.8);
+  assert.equal(COUNTDOWN_SECONDS, 5.6);
+});
+
+test('getDifficulty 按时间返回分段难度', () => {
+  const cases = [
+    [0, true, 1.25, 0.28, 4],
+    [2.999, true, 1.25, 0.28, 4],
+    [3, false, 1.4, 0.45, 6],
+    [11.5, false, 1.15, 0.575, 6],
+    [20, false, 0.9, 0.7, 12],
+    [37.5, false, 0.725, 0.85, 12],
+    [55, false, 0.55, 1, 18],
+    [72.5, false, 0.435, 1.15, 18],
+    [90, false, 0.32, 1.3, 18],
+    [300, false, 0.32, 1.3, 18],
+  ];
+
+  for (const [
+    elapsedSeconds,
+    expectedProtected,
+    expectedSpawnInterval,
+    expectedSpeedMultiplier,
+    expectedEnemyCap,
+  ] of cases) {
+    const difficulty = getDifficulty(elapsedSeconds);
+
+    assert.deepEqual(Object.keys(difficulty).sort(), [
+      'enemyCap',
+      'protected',
+      'spawnInterval',
+      'speedMultiplier',
+    ]);
+    assert.equal(difficulty.protected, expectedProtected);
+    if (Number.isFinite(expectedSpawnInterval)) {
+      assertClose(difficulty.spawnInterval, expectedSpawnInterval);
+    } else {
+      assert.equal(difficulty.spawnInterval, expectedSpawnInterval);
+    }
+    assertClose(difficulty.speedMultiplier, expectedSpeedMultiplier);
+    assert.equal(difficulty.enemyCap, expectedEnemyCap);
+  }
+});
+
+test('getDifficulty 将负数和非有限输入按 0 秒处理', () => {
+  const protectionStart = getDifficulty(0);
+
+  for (const elapsedSeconds of [
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ]) {
+    assert.deepEqual(getDifficulty(elapsedSeconds), protectionStart);
+  }
+});
 
 test('createGameState 初始化空闲状态并规范化最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: -4 });
@@ -71,6 +151,7 @@ test('createGameState 初始化空闲状态并规范化最高分', () => {
   assert.ok(Math.abs(state.player.size - 10.8) < Number.EPSILON * 10.8);
   assert.deepEqual(state.enemies, []);
   assert.deepEqual(state.particles, []);
+  assert.equal(state.countdownElapsed, 0);
   assert.equal(createGameState({ width: 800, height: 600, bestScore: '7' }).bestScore, 7);
   assert.equal(createGameState({ width: 800, height: 600, bestScore: '7 秒' }).bestScore, 0);
 });
@@ -128,7 +209,6 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   state.particles.push({ id: 'particle' });
   state.elapsed = 9;
   state.spawnElapsed = 4;
-  state.spawnInterval = 1;
   state.shake = 3;
   state.finalScore = 8;
   state.bestScore = 15;
@@ -140,6 +220,7 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.strictEqual(result, state);
   assert.equal(state.phase, 'running');
   assert.equal(state.accumulator, 0);
+  assert.equal(state.countdownElapsed, COUNTDOWN_SECONDS);
   assert.equal(state.player.x, 320);
   assert.equal(state.player.y, 240);
   assert.ok(Math.abs(state.player.size - 8.64) < Number.EPSILON * 8.64);
@@ -147,12 +228,123 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.deepEqual(state.particles, []);
   assert.equal(state.elapsed, 0);
   assert.equal(state.spawnElapsed, 0);
-  assert.equal(state.spawnInterval, 28 / 60);
   assert.equal(state.shake, 0);
   assert.equal(state.finalScore, 0);
   assert.equal(state.bestScore, 15);
   assert.equal(state.bestScoreAtStart, 15);
   assert.equal(state.isNewRecord, false);
+});
+
+test('startCountdown 原地重置新一局状态并保留开局最高分', () => {
+  const state = createGameState({ width: 800, height: 600, bestScore: 9 });
+  state.phase = 'gameover';
+  state.accumulator = 0.4;
+  state.countdownElapsed = 4.2;
+  state.player = { x: 123, y: 456, size: 7 };
+  state.elapsed = 12.7;
+  state.spawnElapsed = 0.6;
+  state.shake = 12;
+  state.finalScore = 12;
+  state.bestScore = 9;
+  state.enemies.push({ id: 'enemy' });
+  state.particles.push({ id: 'particle' });
+  state.isNewRecord = true;
+
+  const result = startCountdown(state);
+
+  assert.strictEqual(result, state);
+  assert.equal(state.phase, 'countdown');
+  assert.equal(state.accumulator, 0);
+  assert.equal(state.countdownElapsed, 0);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.finalScore, 0);
+  assert.deepEqual(state.enemies, []);
+  assert.deepEqual(state.particles, []);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.equal(state.player.size, playerSize(800, 600));
+  assert.equal(state.shake, 0);
+  assert.equal(state.bestScore, 9);
+  assert.equal(state.bestScoreAtStart, 9);
+  assert.equal(state.isNewRecord, false);
+});
+
+test('倒计时期间冻结计分、刷怪和玩家移动', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startCountdown(state);
+  state.enemies.push({
+    x: 100,
+    y: 100,
+    vx: 120,
+    vy: 60,
+    size: 10,
+  });
+  const enemiesBeforeCountdown = structuredClone(state.enemies);
+
+  stepGame(
+    state,
+    COUNTDOWN_SECONDS - FIXED_STEP,
+    { ...keyboardRight, down: true },
+    () => 0.5,
+  );
+
+  assert.equal(state.phase, 'countdown');
+  assertClose(state.countdownElapsed, COUNTDOWN_SECONDS - FIXED_STEP);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.deepEqual(state.enemies, enemiesBeforeCountdown);
+});
+
+test('倒计时边界只切换阶段并在下一固定步开始游戏', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startCountdown(state);
+  const input = { ...keyboardRight, down: true };
+
+  stepGame(state, COUNTDOWN_SECONDS - FIXED_STEP, input, () => 0.5);
+  stepGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.countdownElapsed, COUNTDOWN_SECONDS);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.deepEqual(state.enemies, []);
+
+  stepGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.elapsed, FIXED_STEP);
+  assert.ok(state.player.x > 400);
+});
+
+test('advanceGame 在倒计时边界保留固定步余量', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  const input = { ...keyboardRight };
+  startCountdown(state);
+  state.countdownElapsed = COUNTDOWN_SECONDS - FIXED_STEP;
+
+  advanceGame(state, FIXED_STEP / 2, input, () => 0.5);
+
+  assert.equal(state.phase, 'countdown');
+  assertClose(state.accumulator, FIXED_STEP / 2);
+
+  advanceGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.spawnElapsed, 0);
+  assert.deepEqual(state.enemies, []);
+  assertClose(state.accumulator, FIXED_STEP / 2);
+
+  advanceGame(state, FIXED_STEP / 2, input, () => 0.5);
+
+  assertClose(state.elapsed, FIXED_STEP);
+  assert.ok(state.player.x > 400);
+  assertClose(state.accumulator, 0);
 });
 
 test('resizeGame 按新旧画布比例迁移空间状态', () => {
@@ -330,12 +522,12 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
   startGame(state);
   state.elapsed = 8.25;
   state.spawnElapsed = 0.12;
-  state.spawnInterval = 0.31;
   state.finalScore = 8;
   state.bestScore = 9;
   state.bestScoreAtStart = 9;
   state.isNewRecord = true;
   state.accumulator = 0.007;
+  state.countdownElapsed = 2.4;
   state.enemies.push({
     x: 100,
     y: 90,
@@ -361,12 +553,12 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
     phase: state.phase,
     elapsed: state.elapsed,
     spawnElapsed: state.spawnElapsed,
-    spawnInterval: state.spawnInterval,
     finalScore: state.finalScore,
     bestScore: state.bestScore,
     bestScoreAtStart: state.bestScoreAtStart,
     isNewRecord: state.isNewRecord,
     accumulator: state.accumulator,
+    countdownElapsed: state.countdownElapsed,
   };
 
   const result = resizeGame(state, 640, 480);
@@ -382,12 +574,12 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
       phase: state.phase,
       elapsed: state.elapsed,
       spawnElapsed: state.spawnElapsed,
-      spawnInterval: state.spawnInterval,
       finalScore: state.finalScore,
       bestScore: state.bestScore,
       bestScoreAtStart: state.bestScoreAtStart,
       isNewRecord: state.isNewRecord,
       accumulator: state.accumulator,
+      countdownElapsed: state.countdownElapsed,
     },
     lifecycle,
   );
@@ -588,7 +780,7 @@ test('advanceGame 达到最大步数后丢弃剩余积压', () => {
   assert.equal(state.accumulator, 0);
 });
 
-test('非运行阶段冻结 stepGame 的时间和玩家位置', () => {
+test('idle 和 gameover 阶段冻结 stepGame 的时间和玩家位置', () => {
   for (const phase of ['idle', 'gameover']) {
     const state = createGameState({ width: 800, height: 600 });
     state.phase = phase;
@@ -701,6 +893,7 @@ test('碰撞后追平开局最高分不算新纪录', () => {
 test('结束后敌人冻结而粒子与震动自然结束', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
+  state.elapsed = OPENING_PROTECTION_SECONDS;
   state.enemies.push({
     x: state.player.x,
     y: state.player.y,
@@ -728,69 +921,189 @@ test('结束后敌人冻结而粒子与震动自然结束', () => {
   assert.equal(state.finalScore, collisionFinalScore);
 });
 
-test('开局后第二十八个固定步长恰好生成首个敌人', () => {
+test('开局保护允许移动并自然刷怪', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
-  assert.equal(state.spawnInterval, INITIAL_SPAWN_INTERVAL);
+  const initialPlayerX = state.player.x;
 
-  for (let step = 0; step < 27; step += 1) {
-    stepGame(state, FIXED_STEP, {}, () => 0.5);
-    assert.equal(state.enemies.length, 0);
+  for (let step = 0; step < 179; step += 1) {
+    stepGame(state, FIXED_STEP, keyboardRight, () => 0.5);
   }
 
-  stepGame(state, FIXED_STEP, {}, () => 0.5);
+  assert.ok(state.player.x > initialPlayerX);
+  assert.ok(state.elapsed < 3);
+  assert.ok(state.enemies.length > 0);
+  assert.ok(state.spawnElapsed > 0);
+});
+
+test('开局保护期间敌人碰撞不会结束游戏', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 1;
+  state.enemies.push({
+    x: state.player.x,
+    y: state.player.y,
+    vx: 0,
+    vy: 0,
+    size: state.player.size,
+  });
+
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.enemies.length, 1);
+  assert.equal(state.particles.length, 0);
+});
+
+test('刷怪债务达到热身间隔时生成敌人', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 3;
+  state.spawnElapsed = getDifficulty(3).spawnInterval;
+
+  stepGame(state, 0, noInput, () => 0.5);
 
   assert.equal(state.enemies.length, 1);
 });
 
-test('连续刷怪时间隔逐次下降并保留有效时间余量', () => {
+test('固定步累加使保护期内自然首刷且保护结束后延续节奏', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
-  let spawnCount = 0;
+  const random = () => 0.5;
 
-  for (let step = 0; step < 2400; step += 1) {
-    const previousInterval = state.spawnInterval;
-    stepGame(state, FIXED_STEP, {}, () => 0.5);
-
-    if (state.enemies.length > 0) {
-      spawnCount += state.enemies.length;
-      assert.equal(
-        state.spawnInterval,
-        Math.max(
-          MIN_SPAWN_INTERVAL,
-          previousInterval - SPAWN_INTERVAL_DECREASE,
-        ),
-      );
-      assert.equal(Number.isFinite(state.spawnElapsed), true);
-      assert.ok(state.spawnElapsed >= 0);
-      assert.ok(state.spawnElapsed < state.spawnInterval + 1e-9);
-      state.enemies = [];
-    }
+  for (let step = 1; step < 75; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 0);
   }
 
-  assert.ok(spawnCount > 100);
-  assert.equal(state.spawnInterval, MIN_SPAWN_INTERVAL);
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 1);
+  const firstEnemyX = state.enemies[0].x;
+  const firstEnemyY = state.enemies[0].y;
+
+  for (let step = 76; step < 150; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 1);
+  }
+
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(
+    Math.hypot(
+      state.enemies[0].x - firstEnemyX,
+      state.enemies[0].y - firstEnemyY,
+    ) > 0,
+  );
+
+  for (let step = 151; step <= 179; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(getDifficulty(state.elapsed).protected, true);
+    assert.equal(state.enemies.length, 2);
+  }
+
+  // 连续累加的第 180 步略小于 3 秒，第 181 步才首次解除保护。
+  stepGame(state, FIXED_STEP, noInput, random);
+  assertClose(state.elapsed, 3);
+  assert.equal(getDifficulty(state.elapsed).protected, true);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(state.spawnElapsed > 0);
+
+  stepGame(state, FIXED_STEP, noInput, random);
+  assert.equal(getDifficulty(state.elapsed).protected, false);
+  assert.equal(state.enemies.length, 2);
+  assert.ok(state.spawnElapsed > FIXED_STEP);
+
+  for (let step = 182; step < 233; step += 1) {
+    stepGame(state, FIXED_STEP, noInput, random);
+    assert.equal(state.enemies.length, 2);
+    assert.ok(
+      state.spawnElapsed + 1e-9 <
+        getDifficulty(state.elapsed).spawnInterval,
+    );
+  }
+
+  stepGame(state, FIXED_STEP, noInput, random);
+
+  assert.equal(state.enemies.length, 3);
 });
 
-test('刷怪间隔达到下限后十秒恰好生成一百二十个敌人', () => {
+test('敌人速度在生成时应用难度倍率', () => {
+  const randomValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
+  const warmup = spawnOneEnemyAt(3, randomValues);
+  const intense = spawnOneEnemyAt(90, randomValues);
+  const warmupSpeed = Math.hypot(warmup.enemy.vx, warmup.enemy.vy);
+  const intenseSpeed = Math.hypot(intense.enemy.vx, intense.enemy.vy);
+
+  assert.equal(warmup.randomIndex, randomValues.length);
+  assert.equal(intense.randomIndex, randomValues.length);
+  assertClose(intenseSpeed / warmupSpeed, 1.3 / 0.45);
+});
+
+test('达到敌人上限时清空刷怪积累且不补刷', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
-  state.spawnInterval = MIN_SPAWN_INTERVAL;
-  let spawnCount = 0;
-
-  for (let step = 0; step < 600; step += 1) {
-    stepGame(state, FIXED_STEP, {}, () => 0.5);
-
-    if (state.enemies.length > 0) {
-      spawnCount += state.enemies.length;
-      state.enemies = [];
-    }
+  state.elapsed = 20;
+  state.spawnElapsed = getDifficulty(20).spawnInterval;
+  for (let index = 0; index < 12; index += 1) {
+    state.enemies.push({
+      x: 100,
+      y: 100,
+      vx: 0,
+      vy: 0,
+      size: 1,
+    });
   }
 
-  assert.equal(spawnCount, 120);
-  assert.equal(Number.isFinite(state.spawnElapsed), true);
-  assert.ok(state.spawnElapsed >= 0);
-  assert.ok(state.spawnElapsed < MIN_SPAWN_INTERVAL + 1e-9);
+  stepGame(state, 0, noInput, () => 0.5);
+
+  assert.equal(state.enemies.length, 12);
+  assert.equal(state.spawnElapsed, 0);
+
+  state.enemies.pop();
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+
+  assert.equal(state.enemies.length, 11);
+});
+
+test('八次生成点过近时跳过本次刷怪', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 3;
+  state.player.x = state.player.size;
+  state.player.y = state.height / 2;
+  state.spawnElapsed = getDifficulty(3).spawnInterval;
+  const randomValues = Array.from({ length: 8 }, () => [0.75, 0.5]).flat();
+  let randomIndex = 0;
+
+  stepGame(state, 0, noInput, () => randomValues[randomIndex++]);
+
+  assert.equal(randomIndex, 16);
+  assert.equal(state.enemies.length, 0);
+  assert.equal(state.spawnElapsed, 0);
+});
+
+test('重开后恢复保护期并清空刷怪积累', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startGame(state);
+  state.elapsed = 80;
+  state.spawnElapsed = 0.4;
+  state.enemies.push({
+    x: 100,
+    y: 100,
+    vx: 0,
+    vy: 0,
+    size: 1,
+  });
+
+  startGame(state);
+
+  assert.deepEqual(getDifficulty(state.elapsed), getDifficulty(0));
+  assert.equal(state.spawnElapsed, 0);
+  assert.deepEqual(state.enemies, []);
 });
 
 test('注入的随机序列能确定敌人从四条边界外生成', () => {
@@ -806,7 +1119,8 @@ test('注入的随机序列能确定敌人从四条边界外生成', () => {
 
   for (let side = 0; side < sideRandomValues.length; side += 1) {
     state.enemies = [];
-    state.spawnElapsed = state.spawnInterval;
+    state.elapsed = 3;
+    state.spawnElapsed = getDifficulty(state.elapsed).spawnInterval;
     const values = [
       sideRandomValues[side],
       0.5,
@@ -832,18 +1146,6 @@ test('注入的随机序列能确定敌人从四条边界外生成', () => {
   }
 });
 
-test('刷怪间隔不会降低到下限以下', () => {
-  const state = createGameState({ width: 800, height: 600 });
-  startGame(state);
-  state.spawnInterval = MIN_SPAWN_INTERVAL;
-  state.spawnElapsed = MIN_SPAWN_INTERVAL;
-
-  stepGame(state, FIXED_STEP, {}, () => 0.5);
-
-  assert.equal(state.enemies.length, 1);
-  assert.equal(state.spawnInterval, MIN_SPAWN_INTERVAL);
-});
-
 test('明显越界且继续向外移动的敌人会被清理', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
@@ -864,6 +1166,7 @@ test('明显越界且继续向外移动的敌人会被清理', () => {
 test('碰撞检测不会阻止清理数组中更早的越界敌人', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
+  state.elapsed = OPENING_PROTECTION_SECONDS;
   const collisionEnemy = {
     x: state.player.x,
     y: state.player.y,
