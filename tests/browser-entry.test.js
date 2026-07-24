@@ -998,12 +998,36 @@ test('预判型敌人绘制为橙红菱形且未知类型回退圆形', () => {
 
   environment.runNextFrame(0);
 
-  assert.ok(environment.context.calls.some(
+  const predictivePath = [
+    ['fillStyle', '#ff6438'],
+    ['beginPath'],
+    ['moveTo', 100, 110],
+    ['lineTo', 110, 120],
+    ['lineTo', 100, 130],
+    ['lineTo', 90, 120],
+    ['lineTo', 100, 110],
+    ['fill'],
+    ['fillStyle', 'rgba(255, 255, 255, 0.45)'],
+    ['beginPath'],
+    ['moveTo', 100, 116.5],
+    ['lineTo', 103.5, 120],
+    ['lineTo', 100, 123.5],
+    ['lineTo', 96.5, 120],
+    ['lineTo', 100, 116.5],
+    ['fill'],
+  ];
+  const predictivePathStart = environment.context.calls.findIndex(
     ([method, value]) => method === 'fillStyle' && value === '#ff6438',
-  ));
-  assert.ok(environment.context.calls.some(
-    ([method, x, y]) => method === 'moveTo' && x === 100 && y === 110,
-  ));
+  );
+
+  assert.notEqual(predictivePathStart, -1);
+  assert.deepEqual(
+    environment.context.calls.slice(
+      predictivePathStart,
+      predictivePathStart + predictivePath.length,
+    ),
+    predictivePath,
+  );
   assert.ok(environment.context.calls.some(
     ([method, x, y, radius]) => method === 'arc' && x === 200 && y === 120 && radius === 10,
   ));
