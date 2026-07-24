@@ -9,11 +9,8 @@ export const COUNTDOWN_SECONDS = 5.6;
 const KEYBOARD_SPEED_FACTOR = 0.65;
 const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
 const MAX_LOGICAL_DIMENSION = 100_000;
-const MIN_SPAWN_DISTANCE_FACTOR = 0.2;
+const MIN_SPAWN_DISTANCE_FACTOR = 0.05;
 const MAX_SPAWN_ATTEMPTS = 8;
-const PROTECTION_SPAWN_INTERVAL = 1.25;
-const PROTECTION_SPEED_MULTIPLIER = 0.28;
-const PROTECTION_ENEMY_CAP = 4;
 const WARMUP_SPAWN_INTERVAL = 1.4;
 const WARMUP_SPEED_MULTIPLIER = 0.45;
 const WARMUP_ENEMY_CAP = 6;
@@ -31,28 +28,19 @@ export function getDifficulty(elapsedSeconds) {
   const elapsed =
     Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0 ? elapsedSeconds : 0;
 
-  if (elapsed < OPENING_PROTECTION_SECONDS) {
-    return {
-      protected: true,
-      spawnInterval: PROTECTION_SPAWN_INTERVAL,
-      speedMultiplier: PROTECTION_SPEED_MULTIPLIER,
-      enemyCap: PROTECTION_ENEMY_CAP,
-    };
-  }
-
   if (elapsed < 20) {
     return {
-      protected: false,
+      protected: elapsed < OPENING_PROTECTION_SECONDS,
       spawnInterval: interpolate(
         elapsed,
-        OPENING_PROTECTION_SECONDS,
+        0,
         20,
         WARMUP_SPAWN_INTERVAL,
         0.9,
       ),
       speedMultiplier: interpolate(
         elapsed,
-        OPENING_PROTECTION_SECONDS,
+        0,
         20,
         WARMUP_SPEED_MULTIPLIER,
         0.7,

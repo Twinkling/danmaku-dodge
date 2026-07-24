@@ -88,10 +88,10 @@ test('倒计时常量定义为指定秒数', () => {
 
 test('getDifficulty 按时间返回分段难度', () => {
   const cases = [
-    [0, true, 1.25, 0.28, 4],
-    [2.999, true, 1.25, 0.28, 4],
-    [3, false, 1.4, 0.45, 6],
-    [11.5, false, 1.15, 0.575, 6],
+    [0, true, 1.4, 0.45, 6],
+    [2.999, true, 1.325025, 0.4874875, 6],
+    [3, false, 1.325, 0.4875, 6],
+    [10, false, 1.15, 0.575, 6],
     [20, false, 0.9, 0.7, 12],
     [37.5, false, 0.725, 0.85, 12],
     [55, false, 0.55, 1, 18],
@@ -966,69 +966,20 @@ test('刷怪债务达到热身间隔时生成敌人', () => {
   assert.equal(state.enemies.length, 1);
 });
 
-test('固定步累加使保护期内自然首刷且保护结束后延续节奏', () => {
+test('保护期沿用热身刷怪且保护结束不重置积累', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
-  const random = () => 0.5;
-
-  for (let step = 1; step < 75; step += 1) {
-    stepGame(state, FIXED_STEP, noInput, random);
-    assert.equal(getDifficulty(state.elapsed).protected, true);
-    assert.equal(state.enemies.length, 0);
-  }
-
-  stepGame(state, FIXED_STEP, noInput, random);
+  state.spawnElapsed = getDifficulty(0).spawnInterval - FIXED_STEP;
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
   assert.equal(getDifficulty(state.elapsed).protected, true);
   assert.equal(state.enemies.length, 1);
-  const firstEnemyX = state.enemies[0].x;
-  const firstEnemyY = state.enemies[0].y;
-
-  for (let step = 76; step < 150; step += 1) {
-    stepGame(state, FIXED_STEP, noInput, random);
-    assert.equal(getDifficulty(state.elapsed).protected, true);
-    assert.equal(state.enemies.length, 1);
-  }
-
-  stepGame(state, FIXED_STEP, noInput, random);
-  assert.equal(getDifficulty(state.elapsed).protected, true);
-  assert.equal(state.enemies.length, 2);
-  assert.ok(
-    Math.hypot(
-      state.enemies[0].x - firstEnemyX,
-      state.enemies[0].y - firstEnemyY,
-    ) > 0,
-  );
-
-  for (let step = 151; step <= 179; step += 1) {
-    stepGame(state, FIXED_STEP, noInput, random);
-    assert.equal(getDifficulty(state.elapsed).protected, true);
-    assert.equal(state.enemies.length, 2);
-  }
-
-  // 连续累加的第 180 步略小于 3 秒，第 181 步才首次解除保护。
-  stepGame(state, FIXED_STEP, noInput, random);
-  assertClose(state.elapsed, 3);
-  assert.equal(getDifficulty(state.elapsed).protected, true);
-  assert.equal(state.enemies.length, 2);
-  assert.ok(state.spawnElapsed > 0);
-
-  stepGame(state, FIXED_STEP, noInput, random);
+  state.enemies = [];
+  state.elapsed = 2.99;
+  state.spawnElapsed = 0.4;
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
   assert.equal(getDifficulty(state.elapsed).protected, false);
-  assert.equal(state.enemies.length, 2);
-  assert.ok(state.spawnElapsed > FIXED_STEP);
-
-  for (let step = 182; step < 233; step += 1) {
-    stepGame(state, FIXED_STEP, noInput, random);
-    assert.equal(state.enemies.length, 2);
-    assert.ok(
-      state.spawnElapsed + 1e-9 <
-        getDifficulty(state.elapsed).spawnInterval,
-    );
-  }
-
-  stepGame(state, FIXED_STEP, noInput, random);
-
-  assert.equal(state.enemies.length, 3);
+  assert.equal(state.enemies.length, 0);
+  assertClose(state.spawnElapsed, 0.4 + FIXED_STEP);
 });
 
 test('敌人速度在生成时应用难度倍率', () => {
@@ -1040,7 +991,10 @@ test('敌人速度在生成时应用难度倍率', () => {
 
   assert.equal(warmup.randomIndex, randomValues.length);
   assert.equal(intense.randomIndex, randomValues.length);
-  assertClose(intenseSpeed / warmupSpeed, 1.3 / 0.45);
+  assertClose(
+    intenseSpeed / warmupSpeed,
+    getDifficulty(90).speedMultiplier / getDifficulty(3).speedMultiplier,
+  );
 });
 
 test('达到敌人上限时清空刷怪积累且不补刷', () => {
@@ -1069,21 +1023,21 @@ test('达到敌人上限时清空刷怪积累且不补刷', () => {
   assert.equal(state.enemies.length, 11);
 });
 
-test('八次生成点过近时跳过本次刷怪', () => {
+test('靠近边缘的玩家允许生成满足短边百分之五距离的敌人', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
   state.elapsed = 3;
   state.player.x = state.player.size;
   state.player.y = state.height / 2;
   state.spawnElapsed = getDifficulty(3).spawnInterval;
-  const randomValues = Array.from({ length: 8 }, () => [0.75, 0.5]).flat();
+  const randomValues = [0.75, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
   let randomIndex = 0;
 
   stepGame(state, 0, noInput, () => randomValues[randomIndex++]);
 
-  assert.equal(randomIndex, 16);
-  assert.equal(state.enemies.length, 0);
-  assert.equal(state.spawnElapsed, 0);
+  assert.equal(randomIndex, randomValues.length);
+  assert.equal(state.enemies.length, 1);
+  assert.ok(Math.hypot(state.enemies[0].x-state.player.x,state.enemies[0].y-state.player.y) >= Math.min(state.width,state.height)*0.05);
 });
 
 test('重开后恢复保护期并清空刷怪积累', () => {
