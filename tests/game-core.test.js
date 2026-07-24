@@ -10,6 +10,7 @@ import {
   advanceGame,
   createGameState,
   getDifficulty,
+  playerSize,
   resizeGame,
   startCountdown,
   startGame,
@@ -237,9 +238,13 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
 test('startCountdown 原地重置新一局状态并保留开局最高分', () => {
   const state = createGameState({ width: 800, height: 600, bestScore: 9 });
   state.phase = 'gameover';
+  state.accumulator = 0.4;
+  state.player = { x: 123, y: 456, size: 7 };
   state.elapsed = 12.7;
   state.spawnElapsed = 0.6;
+  state.shake = 12;
   state.finalScore = 12;
+  state.bestScore = 9;
   state.enemies.push({ id: 'enemy' });
   state.particles.push({ id: 'particle' });
   state.isNewRecord = true;
@@ -248,6 +253,7 @@ test('startCountdown 原地重置新一局状态并保留开局最高分', () =>
 
   assert.strictEqual(result, state);
   assert.equal(state.phase, 'countdown');
+  assert.equal(state.accumulator, 0);
   assert.equal(state.countdownElapsed, 0);
   assert.equal(state.elapsed, 0);
   assert.equal(state.spawnElapsed, 0);
@@ -256,6 +262,9 @@ test('startCountdown 原地重置新一局状态并保留开局最高分', () =>
   assert.deepEqual(state.particles, []);
   assert.equal(state.player.x, 400);
   assert.equal(state.player.y, 300);
+  assert.equal(state.player.size, playerSize(800, 600));
+  assert.equal(state.shake, 0);
+  assert.equal(state.bestScore, 9);
   assert.equal(state.bestScoreAtStart, 9);
   assert.equal(state.isNewRecord, false);
 });
@@ -263,6 +272,14 @@ test('startCountdown 原地重置新一局状态并保留开局最高分', () =>
 test('倒计时期间冻结计分、刷怪和玩家移动', () => {
   const state = createGameState({ width: 800, height: 600 });
   startCountdown(state);
+  state.enemies.push({
+    x: 100,
+    y: 100,
+    vx: 120,
+    vy: 60,
+    size: 10,
+  });
+  const enemiesBeforeCountdown = structuredClone(state.enemies);
 
   stepGame(
     state,
@@ -277,7 +294,7 @@ test('倒计时期间冻结计分、刷怪和玩家移动', () => {
   assert.equal(state.spawnElapsed, 0);
   assert.equal(state.player.x, 400);
   assert.equal(state.player.y, 300);
-  assert.deepEqual(state.enemies, []);
+  assert.deepEqual(state.enemies, enemiesBeforeCountdown);
 });
 
 test('倒计时边界只切换阶段并在下一固定步开始游戏', () => {
