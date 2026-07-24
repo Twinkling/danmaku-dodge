@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COUNTDOWN_DIGIT_SECONDS,
+  COUNTDOWN_SECONDS,
+  COUNTDOWN_TRANSFER_SECONDS,
   FIXED_STEP,
   OPENING_PROTECTION_SECONDS,
   advanceGame,
   createGameState,
   getDifficulty,
   resizeGame,
+  startCountdown,
   startGame,
   stepGame,
 } from '../src/game-core.js';
@@ -75,6 +79,12 @@ test('OPENING_PROTECTION_SECONDS 定义为 3 秒', () => {
   assert.equal(OPENING_PROTECTION_SECONDS, 3);
 });
 
+test('倒计时常量定义为指定秒数', () => {
+  assert.equal(COUNTDOWN_DIGIT_SECONDS, 1.6);
+  assert.equal(COUNTDOWN_TRANSFER_SECONDS, 0.8);
+  assert.equal(COUNTDOWN_SECONDS, 5.6);
+});
+
 test('getDifficulty 按时间返回连续分段难度', () => {
   const cases = [
     [0, true, Number.POSITIVE_INFINITY, 0, 0],
@@ -140,6 +150,7 @@ test('createGameState 初始化空闲状态并规范化最高分', () => {
   assert.ok(Math.abs(state.player.size - 10.8) < Number.EPSILON * 10.8);
   assert.deepEqual(state.enemies, []);
   assert.deepEqual(state.particles, []);
+  assert.equal(state.countdownElapsed, 0);
   assert.equal(createGameState({ width: 800, height: 600, bestScore: '7' }).bestScore, 7);
   assert.equal(createGameState({ width: 800, height: 600, bestScore: '7 秒' }).bestScore, 0);
 });
@@ -208,6 +219,7 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.strictEqual(result, state);
   assert.equal(state.phase, 'running');
   assert.equal(state.accumulator, 0);
+  assert.equal(state.countdownElapsed, COUNTDOWN_SECONDS);
   assert.equal(state.player.x, 320);
   assert.equal(state.player.y, 240);
   assert.ok(Math.abs(state.player.size - 8.64) < Number.EPSILON * 8.64);
@@ -220,6 +232,74 @@ test('startGame 原地重置新一局状态并保留开局最高分', () => {
   assert.equal(state.bestScore, 15);
   assert.equal(state.bestScoreAtStart, 15);
   assert.equal(state.isNewRecord, false);
+});
+
+test('startCountdown 原地重置新一局状态并保留开局最高分', () => {
+  const state = createGameState({ width: 800, height: 600, bestScore: 9 });
+  state.phase = 'gameover';
+  state.elapsed = 12.7;
+  state.spawnElapsed = 0.6;
+  state.finalScore = 12;
+  state.enemies.push({ id: 'enemy' });
+  state.particles.push({ id: 'particle' });
+  state.isNewRecord = true;
+
+  const result = startCountdown(state);
+
+  assert.strictEqual(result, state);
+  assert.equal(state.phase, 'countdown');
+  assert.equal(state.countdownElapsed, 0);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.finalScore, 0);
+  assert.deepEqual(state.enemies, []);
+  assert.deepEqual(state.particles, []);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.equal(state.bestScoreAtStart, 9);
+  assert.equal(state.isNewRecord, false);
+});
+
+test('倒计时期间冻结计分、刷怪和玩家移动', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startCountdown(state);
+
+  stepGame(
+    state,
+    COUNTDOWN_SECONDS - FIXED_STEP,
+    { ...keyboardRight, down: true },
+    () => 0.5,
+  );
+
+  assert.equal(state.phase, 'countdown');
+  assertClose(state.countdownElapsed, COUNTDOWN_SECONDS - FIXED_STEP);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.deepEqual(state.enemies, []);
+});
+
+test('倒计时边界只切换阶段并在下一固定步开始游戏', () => {
+  const state = createGameState({ width: 800, height: 600 });
+  startCountdown(state);
+  const input = { ...keyboardRight, down: true };
+
+  stepGame(state, COUNTDOWN_SECONDS - FIXED_STEP, input, () => 0.5);
+  stepGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.phase, 'running');
+  assert.equal(state.countdownElapsed, COUNTDOWN_SECONDS);
+  assert.equal(state.elapsed, 0);
+  assert.equal(state.spawnElapsed, 0);
+  assert.equal(state.player.x, 400);
+  assert.equal(state.player.y, 300);
+  assert.deepEqual(state.enemies, []);
+
+  stepGame(state, FIXED_STEP, input, () => 0.5);
+
+  assert.equal(state.elapsed, FIXED_STEP);
+  assert.ok(state.player.x > 400);
 });
 
 test('resizeGame 按新旧画布比例迁移空间状态', () => {
@@ -402,6 +482,7 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
   state.bestScoreAtStart = 9;
   state.isNewRecord = true;
   state.accumulator = 0.007;
+  state.countdownElapsed = 2.4;
   state.enemies.push({
     x: 100,
     y: 90,
@@ -432,6 +513,7 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
     bestScoreAtStart: state.bestScoreAtStart,
     isNewRecord: state.isNewRecord,
     accumulator: state.accumulator,
+    countdownElapsed: state.countdownElapsed,
   };
 
   const result = resizeGame(state, 640, 480);
@@ -452,6 +534,7 @@ test('resizeGame 原地更新实体并保持生命周期状态', () => {
       bestScoreAtStart: state.bestScoreAtStart,
       isNewRecord: state.isNewRecord,
       accumulator: state.accumulator,
+      countdownElapsed: state.countdownElapsed,
     },
     lifecycle,
   );
@@ -652,7 +735,7 @@ test('advanceGame 达到最大步数后丢弃剩余积压', () => {
   assert.equal(state.accumulator, 0);
 });
 
-test('非运行阶段冻结 stepGame 的时间和玩家位置', () => {
+test('idle 和 gameover 阶段冻结 stepGame 的时间和玩家位置', () => {
   for (const phase of ['idle', 'gameover']) {
     const state = createGameState({ width: 800, height: 600 });
     state.phase = phase;

@@ -2,6 +2,9 @@ export const FIXED_STEP = 1 / 60;
 export const MAX_FRAME_TIME = 0.1;
 export const MAX_STEPS_PER_FRAME = 6;
 export const OPENING_PROTECTION_SECONDS = 3;
+export const COUNTDOWN_DIGIT_SECONDS = 1.6;
+export const COUNTDOWN_TRANSFER_SECONDS = 0.8;
+export const COUNTDOWN_SECONDS = 5.6;
 
 const KEYBOARD_SPEED_FACTOR = 0.65;
 const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
@@ -314,6 +317,7 @@ export function createGameState({ width, height, bestScore = 0 }) {
     },
     enemies: [],
     particles: [],
+    countdownElapsed: 0,
     elapsed: 0,
     spawnElapsed: 0,
     shake: 0,
@@ -369,9 +373,7 @@ export function resizeGame(state, width, height) {
   return state;
 }
 
-export function startGame(state) {
-  state.phase = 'running';
-  state.accumulator = 0;
+function resetRound(state) {
   state.player = {
     x: state.width / 2,
     y: state.height / 2,
@@ -385,6 +387,22 @@ export function startGame(state) {
   state.finalScore = 0;
   state.bestScoreAtStart = state.bestScore;
   state.isNewRecord = false;
+}
+
+export function startCountdown(state) {
+  state.phase = 'countdown';
+  state.accumulator = 0;
+  state.countdownElapsed = 0;
+  resetRound(state);
+
+  return state;
+}
+
+export function startGame(state) {
+  state.phase = 'running';
+  state.accumulator = 0;
+  state.countdownElapsed = COUNTDOWN_SECONDS;
+  resetRound(state);
 
   return state;
 }
@@ -393,7 +411,19 @@ export function stepGame(state, deltaTime, input = {}, random = Math.random) {
   const safeDeltaTime =
     Number.isFinite(deltaTime) && deltaTime >= 0 ? deltaTime : 0;
 
-  if (state.phase === 'running') {
+  if (state.phase === 'countdown') {
+    state.countdownElapsed = Math.min(
+      COUNTDOWN_SECONDS,
+      state.countdownElapsed + safeDeltaTime,
+    );
+
+    if (state.countdownElapsed + 1e-9 >= COUNTDOWN_SECONDS) {
+      state.countdownElapsed = COUNTDOWN_SECONDS;
+      state.phase = 'running';
+      state.elapsed = 0;
+      state.spawnElapsed = 0;
+    }
+  } else if (state.phase === 'running') {
     updatePlayer(state, safeDeltaTime, input);
     state.elapsed += safeDeltaTime;
     updateEnemies(state, safeDeltaTime, random);
