@@ -103,16 +103,22 @@ test('倒计时常量定义为指定秒数', () => {
 
 test('getDifficulty 按时间返回分段难度', () => {
   const cases = [
-    [0, true, 1.4, 0.45, 6, 0],
-    [2.999, true, 1.325025, 0.4874875, 6, 0],
-    [3, false, 1.325, 0.4875, 6, 0],
-    [10, false, 1.15, 0.575, 6, 0],
-    [20, false, 0.9, 0.7, 12, 0.25],
-    [37.5, false, 0.725, 0.85, 12, 0.25],
-    [55, false, 0.55, 1, 18, 0.5],
-    [72.5, false, 0.435, 1.15, 18, 0.5],
-    [90, false, 0.32, 1.3, 18, 0.75],
-    [300, false, 0.32, 1.3, 18, 0.75],
+    [0, true, 1, 0.7, 12, 0],
+    [2.999, true, 0.9500166666666667, 0.7399866666666667, 12, 0],
+    [3, false, 0.95, 0.74, 12, 0],
+    [7.5, false, 0.875, 0.8, 12, 0],
+    [15, false, 0.75, 0.9, 20, 0.25],
+    [25, false, 0.65, 1, 20, 0.25],
+    [35, false, 0.55, 1.1, 30, 0.25],
+    [47.5, false, 0.475, 1.225, 30, 0.25],
+    [60, false, 0.4, 1.35, 42, 0.5],
+    [75, false, 0.34, 1.475, 42, 0.5],
+    [90, false, 0.28, 1.6, 56, 0.75],
+    [105, false, 0.24, 1.7, 56, 0.75],
+    [120, false, 0.2, 1.8, 72, 0.75],
+    [135, false, 0.18, 1.9, 72, 0.75],
+    [150, false, 0.16, 2, 72, 0.75],
+    [300, false, 0.16, 2, 72, 0.75],
   ];
 
   for (const [
@@ -141,6 +147,16 @@ test('getDifficulty 按时间返回分段难度', () => {
     assertClose(difficulty.speedMultiplier, expectedSpeedMultiplier);
     assert.equal(difficulty.enemyCap, expectedEnemyCap);
     assert.equal(difficulty.predictiveRatio, expectedPredictiveRatio);
+  }
+});
+
+test('getDifficulty 在阶段边界保持速度与刷怪间隔连续', () => {
+  for (const boundary of [15, 35, 60, 90, 120, 150]) {
+    const beforeBoundary = getDifficulty(boundary - 1e-7);
+    const atBoundary = getDifficulty(boundary);
+
+    assertClose(beforeBoundary.spawnInterval, atBoundary.spawnInterval, 1e-8);
+    assertClose(beforeBoundary.speedMultiplier, atBoundary.speedMultiplier, 1e-8);
   }
 });
 
@@ -1034,7 +1050,7 @@ test('敌人速度在生成时应用难度倍率', () => {
   const warmupValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
   const intenseValues = [0, 0.5, 0.9, 0.5, 0.5, 0.5, 0.5, 0.125];
   const warmup = spawnOneEnemyAt(0, warmupValues);
-  const intense = spawnOneEnemyAt(90, intenseValues);
+  const intense = spawnOneEnemyAt(150, intenseValues);
   const warmupSpeed = Math.hypot(warmup.enemy.vx, warmup.enemy.vy);
   const intenseSpeed = Math.hypot(intense.enemy.vx, intense.enemy.vy);
 
@@ -1042,16 +1058,29 @@ test('敌人速度在生成时应用难度倍率', () => {
   assert.equal(intense.randomIndex, intenseValues.length);
   assertClose(
     intenseSpeed / warmupSpeed,
-    getDifficulty(90).speedMultiplier / getDifficulty(0).speedMultiplier,
+    getDifficulty(150).speedMultiplier / getDifficulty(0).speedMultiplier,
   );
+});
+
+test('已生成敌人不会因进入更高阶段而改变速度', () => {
+  const values = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
+  const { enemy, state } = spawnOneEnemyAt(0, values);
+  const { vx, vy } = enemy;
+
+  state.elapsed = 150;
+  state.spawnElapsed = 0;
+  stepGame(state, FIXED_STEP, noInput, () => 0.5);
+
+  assert.equal(enemy.vx, vx);
+  assert.equal(enemy.vy, vy);
 });
 
 test('各阶段按预判比例选择敌人类型并保持随机序列消费', () => {
   const cases = [
-    [20, 0.249, 'predictive'],
-    [20, 0.25, 'normal'],
-    [55, 0.499, 'predictive'],
-    [55, 0.5, 'normal'],
+    [15, 0.249, 'predictive'],
+    [15, 0.25, 'normal'],
+    [60, 0.499, 'predictive'],
+    [60, 0.5, 'normal'],
     [90, 0.749, 'predictive'],
     [90, 0.75, 'normal'],
   ];
@@ -1065,7 +1094,7 @@ test('各阶段按预判比例选择敌人类型并保持随机序列消费', ()
   }
 
   const warmupValues = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.125];
-  const warmup = spawnOneEnemyAt(19.999, warmupValues);
+  const warmup = spawnOneEnemyAt(14.999, warmupValues);
   assert.equal(warmup.enemy.type, 'normal');
   assert.equal(warmup.randomIndex, warmupValues.length);
 });
@@ -1112,9 +1141,10 @@ test('预判型敌人出生后不再修正方向', () => {
 test('达到敌人上限时清空刷怪积累且不补刷', () => {
   const state = createGameState({ width: 800, height: 600 });
   startGame(state);
-  state.elapsed = 20;
-  state.spawnElapsed = getDifficulty(20).spawnInterval;
-  for (let index = 0; index < 12; index += 1) {
+  state.elapsed = 120;
+  const difficulty = getDifficulty(state.elapsed);
+  state.spawnElapsed = difficulty.spawnInterval;
+  for (let index = 0; index < difficulty.enemyCap; index += 1) {
     state.enemies.push({
       x: 100,
       y: 100,
@@ -1126,13 +1156,13 @@ test('达到敌人上限时清空刷怪积累且不补刷', () => {
 
   stepGame(state, 0, noInput, () => 0.5);
 
-  assert.equal(state.enemies.length, 12);
+  assert.equal(state.enemies.length, difficulty.enemyCap);
   assert.equal(state.spawnElapsed, 0);
 
   state.enemies.pop();
   stepGame(state, FIXED_STEP, noInput, () => 0.5);
 
-  assert.equal(state.enemies.length, 11);
+  assert.equal(state.enemies.length, difficulty.enemyCap - 1);
 });
 
 test('靠近边缘的玩家允许生成满足短边百分之五距离的敌人', () => {

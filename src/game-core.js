@@ -11,9 +11,9 @@ const POINTER_FOLLOW_RATE = -Math.log(1 - 0.22) * 60;
 const MAX_LOGICAL_DIMENSION = 100_000;
 const MIN_SPAWN_DISTANCE_FACTOR = 0.05;
 const MAX_SPAWN_ATTEMPTS = 8;
-const WARMUP_SPAWN_INTERVAL = 1.4;
-const WARMUP_SPEED_MULTIPLIER = 0.45;
-const WARMUP_ENEMY_CAP = 6;
+const WARMUP_SPAWN_INTERVAL = 1;
+const WARMUP_SPEED_MULTIPLIER = 0.7;
+const WARMUP_ENEMY_CAP = 12;
 const PREDICTIVE_LEAD_SECONDS = 0.6;
 const NORMAL_TARGET_JITTER_FACTOR = 0.25;
 const PREDICTIVE_TARGET_JITTER_FACTOR = 0.1;
@@ -31,34 +31,32 @@ export function getDifficulty(elapsedSeconds) {
   const elapsed =
     Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0 ? elapsedSeconds : 0;
 
-  if (elapsed < 20) {
+  if (elapsed < 15) {
     return {
       protected: elapsed < OPENING_PROTECTION_SECONDS,
-      spawnInterval: interpolate(
-        elapsed,
-        0,
-        20,
-        WARMUP_SPAWN_INTERVAL,
-        0.9,
-      ),
-      speedMultiplier: interpolate(
-        elapsed,
-        0,
-        20,
-        WARMUP_SPEED_MULTIPLIER,
-        0.7,
-      ),
+      spawnInterval: interpolate(elapsed, 0, 15, WARMUP_SPAWN_INTERVAL, 0.75),
+      speedMultiplier: interpolate(elapsed, 0, 15, WARMUP_SPEED_MULTIPLIER, 0.9),
       enemyCap: WARMUP_ENEMY_CAP,
       predictiveRatio: 0,
     };
   }
 
-  if (elapsed < 55) {
+  if (elapsed < 35) {
     return {
       protected: false,
-      spawnInterval: interpolate(elapsed, 20, 55, 0.9, 0.55),
-      speedMultiplier: interpolate(elapsed, 20, 55, 0.7, 1),
-      enemyCap: 12,
+      spawnInterval: interpolate(elapsed, 15, 35, 0.75, 0.55),
+      speedMultiplier: interpolate(elapsed, 15, 35, 0.9, 1.1),
+      enemyCap: 20,
+      predictiveRatio: 0.25,
+    };
+  }
+
+  if (elapsed < 60) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 35, 60, 0.55, 0.4),
+      speedMultiplier: interpolate(elapsed, 35, 60, 1.1, 1.35),
+      enemyCap: 30,
       predictiveRatio: 0.25,
     };
   }
@@ -66,18 +64,38 @@ export function getDifficulty(elapsedSeconds) {
   if (elapsed < 90) {
     return {
       protected: false,
-      spawnInterval: interpolate(elapsed, 55, 90, 0.55, 0.32),
-      speedMultiplier: interpolate(elapsed, 55, 90, 1, 1.3),
-      enemyCap: 18,
+      spawnInterval: interpolate(elapsed, 60, 90, 0.4, 0.28),
+      speedMultiplier: interpolate(elapsed, 60, 90, 1.35, 1.6),
+      enemyCap: 42,
       predictiveRatio: 0.5,
+    };
+  }
+
+  if (elapsed < 120) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 90, 120, 0.28, 0.2),
+      speedMultiplier: interpolate(elapsed, 90, 120, 1.6, 1.8),
+      enemyCap: 56,
+      predictiveRatio: 0.75,
+    };
+  }
+
+  if (elapsed < 150) {
+    return {
+      protected: false,
+      spawnInterval: interpolate(elapsed, 120, 150, 0.2, 0.16),
+      speedMultiplier: interpolate(elapsed, 120, 150, 1.8, 2),
+      enemyCap: 72,
+      predictiveRatio: 0.75,
     };
   }
 
   return {
     protected: false,
-    spawnInterval: 0.32,
-    speedMultiplier: 1.3,
-    enemyCap: 18,
+    spawnInterval: 0.16,
+    speedMultiplier: 2,
+    enemyCap: 72,
     predictiveRatio: 0.75,
   };
 }
