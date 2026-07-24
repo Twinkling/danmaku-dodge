@@ -151,10 +151,27 @@ test('getDifficulty 按时间返回分段难度', () => {
 });
 
 test('getDifficulty 在阶段边界保持速度与刷怪间隔连续', () => {
-  for (const boundary of [15, 35, 60, 90, 120, 150]) {
+  const cases = [
+    [15, false, 12, 0],
+    [35, false, 20, 0.25],
+    [60, false, 30, 0.25],
+    [90, false, 42, 0.5],
+    [120, false, 56, 0.75],
+    [150, false, 72, 0.75],
+  ];
+
+  for (const [
+    boundary,
+    expectedProtected,
+    expectedEnemyCap,
+    expectedPredictiveRatio,
+  ] of cases) {
     const beforeBoundary = getDifficulty(boundary - 1e-7);
     const atBoundary = getDifficulty(boundary);
 
+    assert.equal(beforeBoundary.protected, expectedProtected);
+    assert.equal(beforeBoundary.enemyCap, expectedEnemyCap);
+    assert.equal(beforeBoundary.predictiveRatio, expectedPredictiveRatio);
     assertClose(beforeBoundary.spawnInterval, atBoundary.spawnInterval, 1e-8);
     assertClose(beforeBoundary.speedMultiplier, atBoundary.speedMultiplier, 1e-8);
   }
