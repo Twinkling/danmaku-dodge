@@ -287,6 +287,27 @@ test('目标字号翻倍时hold粒子相对中心的几何距离同比放大', (
   assert.ok(Math.abs(largeDistance / smallDistance - 2) < 1e-12);
 });
 
+test('倒计时小方块尺寸保持轻量', () => {
+  const context = createMainContext();
+  const reads = { count: 0 };
+  const renderer = createCountdownRenderer({
+    context,
+    createCanvas: () => createSamplingCanvas(reads),
+    maxParticles: 24,
+  });
+
+  draw(renderer, getCountdownFrame(0.8), { fontSize: 48 });
+  const rects = context.calls.filter(
+    ({ method }) => method === 'fillRect',
+  );
+  const maxSize = Math.max(
+    ...rects.map(({ width, height }) => Math.max(width, height)),
+  );
+
+  assert.ok(rects.length > 0);
+  assert.ok(maxSize <= 1.2);
+});
+
 test('爆炸粒子离开数字且回归粒子抵达玩家', () => {
   const context = createMainContext();
   const reads = { count: 0 };

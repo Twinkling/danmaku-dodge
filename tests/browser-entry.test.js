@@ -791,6 +791,38 @@ test('倒计时初帧绘制粒子数字、居中玩家和常驻内层光晕', ()
   assert.ok(particleRects.length > 0, '应绘制由数字像素采样得到的粒子');
 });
 
+test('倒计时主体与玩家保持清晰间距', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  environment.runNextFrame(0);
+  environment.context.calls.length = 0;
+  game.getState().countdownElapsed = 0.8;
+  environment.runNextFrame(17);
+
+  const particleRects = environment.context.calls.filter(
+    ([method, , , width, height]) =>
+      method === 'fillRect' &&
+      width > 0 &&
+      width <= 5 &&
+      height > 0 &&
+      height <= 5,
+  );
+  const particleBottom = Math.max(
+    ...particleRects.map(([, , y, , height]) => y + height),
+  );
+
+  assert.ok(particleRects.length > 0);
+  assert.ok(
+    particleBottom <=
+      game.getState().player.y - game.getState().player.size * 2,
+  );
+});
+
 test('倒计时末段在 5.2 秒后逐步形成外层保护罩', () => {
   const environment = createEnvironment();
   const game = createBrowserGame({

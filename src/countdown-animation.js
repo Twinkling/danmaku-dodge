@@ -10,6 +10,7 @@ export const COUNTDOWN_SHIELD_START_SECONDS = 5.2;
 const COUNTDOWN_RETURN_START_SECONDS = 4.8;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const DEFAULT_MAX_PARTICLES = 180;
+const PARTICLE_SIZE_RATIO = 44;
 const SAMPLE_FONT_SIZE = 192;
 
 function clamp(value, min, max) {
@@ -240,7 +241,7 @@ function drawParticles(context, {
   fontSize,
 }) {
   const progress = clamp(frame.stageProgress, 0, 1);
-  const particleSize = Math.max(1.5, fontSize / 30);
+  const particleSize = Math.max(1, fontSize / PARTICLE_SIZE_RATIO);
 
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index];

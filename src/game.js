@@ -15,6 +15,8 @@ const STORAGE_KEY = 'dodgeBestScoreV2';
 const MAX_LOGICAL_DIMENSION = 100_000;
 const MAX_BACKING_STORE_SIDE = 8_192;
 const MAX_BACKING_STORE_PIXELS = 16_777_216;
+const COUNTDOWN_CENTER_OFFSET = 2.6;
+const COUNTDOWN_FONT_SCALE = 2.2;
 
 function backingStoreScale(logicalWidth, logicalHeight, requestedDpr) {
   const sideScale = Math.min(
@@ -529,10 +531,10 @@ export function createBrowserGame({
       countdownRenderer.draw({
         frame: countdownFrame,
         centerX: metrics.centerX,
-        centerY: metrics.centerY - metrics.fontSize * 1.25,
+        centerY: metrics.centerY - metrics.fontSize * COUNTDOWN_CENTER_OFFSET,
         playerX: state.player.x,
         playerY: state.player.y,
-        fontSize: metrics.fontSize * 2.4,
+        fontSize: metrics.fontSize * COUNTDOWN_FONT_SCALE,
       });
     }
 
