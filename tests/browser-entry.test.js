@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { createBrowserGame } from '../src/game.js';
+import {
+  COUNTDOWN_SECONDS,
+  FIXED_STEP,
+} from '../src/game-core.js';
 
 const rootUrl = new URL('../', import.meta.url);
 const htmlUrl = new URL('index.html', rootUrl);
@@ -66,6 +70,8 @@ function createContext() {
     'arc',
     'fill',
     'translate',
+    'scale',
+    'clearRect',
     'fillText',
   ]) {
     context[method] = (...args) => {
@@ -74,6 +80,45 @@ function createContext() {
   }
 
   return context;
+}
+
+function createOffscreenCanvas() {
+  const calls = [];
+  const context = {
+    calls,
+    clearRect(...args) {
+      calls.push(['clearRect', ...args]);
+    },
+    fillText(...args) {
+      calls.push(['fillText', ...args]);
+    },
+    getImageData(x, y, width, height) {
+      calls.push(['getImageData', x, y, width, height]);
+      const data = new Uint8ClampedArray(width * height * 4);
+      const minX = Math.floor(width * 0.38);
+      const maxX = Math.ceil(width * 0.62);
+      const minY = Math.floor(height * 0.18);
+      const maxY = Math.ceil(height * 0.82);
+
+      for (let pixelY = minY; pixelY < maxY; pixelY += 1) {
+        for (let pixelX = minX; pixelX < maxX; pixelX += 1) {
+          data[(pixelY * width + pixelX) * 4 + 3] = 255;
+        }
+      }
+
+      return { data };
+    },
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    context,
+    getContext(type) {
+      return type === '2d' ? context : null;
+    },
+  };
+
+  return canvas;
 }
 
 function createEventTarget(properties = {}) {
@@ -113,8 +158,10 @@ function createEventTarget(properties = {}) {
 function createEnvironment({
   context = createContext(),
   storage = createStorage(),
+  offscreenAvailable = true,
 } = {}) {
   const animationFrames = [];
+  const offscreenCanvases = [];
   const timeouts = [];
   let rafCalls = 0;
   const canvas = createEventTarget({
@@ -174,12 +221,21 @@ function createEnvironment({
       if (id === 'game-status') return status;
       return null;
     },
+    createElement(tagName) {
+      if (tagName !== 'canvas' || !offscreenAvailable) {
+        return null;
+      }
+      const offscreenCanvas = createOffscreenCanvas();
+      offscreenCanvases.push(offscreenCanvas);
+      return offscreenCanvas;
+    },
   };
 
   return {
     canvas,
     context,
     documentObject,
+    offscreenCanvases,
     status,
     storage,
     timeouts,
@@ -282,6 +338,7 @@ test('Canvas 2D 不可用时显示可见错误且不启动游戏运行时', asyn
   assert.equal(environment.canvas.listenerCount(), 0);
   assert.equal(environment.windowObject.listenerCount(), 0);
   assert.equal(environment.rafCalls, 0);
+  assert.equal(environment.offscreenCanvases.length, 0);
 });
 
 test('resize 保留非法视口前的尺寸并统一夹取画布与状态边界', async () => {
@@ -547,6 +604,8 @@ test('鼠标 pointerup 后继续向最后目标缓动', () => {
     pointerEvent({ pointerType: 'mouse', clientX: 700, clientY: 300 }),
   );
 
+  game.getState().phase = 'running';
+  game.getState().countdownElapsed = COUNTDOWN_SECONDS;
   const initialX = game.getState().player.x;
   environment.runNextFrame(1_000);
   environment.runNextFrame(1_017);
@@ -579,7 +638,8 @@ test('点击或键盘重开后首个动画帧不累计暂停时间', async () =>
     }
 
     environment.runNextFrame(60_000);
-    assert.equal(game.getState().elapsed, 0);
+    assert.equal(game.getState().phase, 'countdown');
+    assert.equal(game.getState().countdownElapsed, 0);
     assert.equal(game.getState().player.x, 400);
     assert.equal(game.getState().player.y, 300);
   }
@@ -595,6 +655,8 @@ test('新纪录只写入一次并在后续动画帧保持稳定', async () => {
   game.beginGame();
   environment.runNextFrame(1_000);
   const state = game.getState();
+  state.phase = 'running';
+  state.countdownElapsed = COUNTDOWN_SECONDS;
   state.elapsed = 5;
   state.enemies.push({
     x: state.player.x,
@@ -632,6 +694,8 @@ test('localStorage 读写抛错时初始化和游戏循环继续运行', async (
   game.beginGame();
   assert.doesNotThrow(() => environment.runNextFrame(1_000));
   const state = game.getState();
+  state.phase = 'running';
+  state.countdownElapsed = COUNTDOWN_SECONDS;
   state.elapsed = 3;
   state.enemies.push({
     x: state.player.x,
@@ -645,7 +709,43 @@ test('localStorage 读写抛错时初始化和游戏循环继续运行', async (
   assert.equal(state.phase, 'gameover');
 });
 
-test('保护期绘制倒计时和额外光环并在三秒后消失', () => {
+test('开始进入倒计时且重复开始输入不重置进度', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  assert.equal(game.getState().phase, 'countdown');
+  assert.equal(game.getState().countdownElapsed, 0);
+  assert.equal(environment.status.textContent, '倒计时开始');
+
+  game.getState().countdownElapsed = 2.4;
+  const spaceEvent = environment.windowObject.dispatch('keydown', {
+    code: 'Space',
+  });
+  assert.equal(spaceEvent.defaultPrevented, true);
+  assert.equal(game.getState().phase, 'countdown');
+  assert.equal(game.getState().countdownElapsed, 2.4);
+
+  const enterEvent = environment.windowObject.dispatch('keydown', {
+    code: 'Enter',
+  });
+  assert.equal(enterEvent.defaultPrevented, true);
+  assert.equal(game.getState().countdownElapsed, 2.4);
+
+  environment.canvas.dispatch(
+    'pointerdown',
+    pointerEvent({ clientX: 100, clientY: 120 }),
+  );
+  assert.equal(game.getState().phase, 'countdown');
+  assert.equal(game.getState().countdownElapsed, 2.4);
+  assert.equal(game.input.pointerX, 100);
+  assert.equal(game.input.pointerY, 120);
+});
+
+test('倒计时初帧绘制粒子数字、居中玩家和常驻内层光晕', () => {
   const environment = createEnvironment();
   const game = createBrowserGame({
     windowObject: environment.windowObject,
@@ -654,46 +754,120 @@ test('保护期绘制倒计时和额外光环并在三秒后消失', () => {
 
   game.beginGame();
   environment.runNextFrame(0);
-  let texts = environment.context.calls
+  const texts = environment.context.calls
     .filter(([method]) => method === 'fillText')
     .map(([, text]) => text);
-  let arcs = environment.context.calls.filter(
+  const arcs = environment.context.calls.filter(
     ([method]) => method === 'arc',
   );
-  assert.ok(texts.includes('准备 3'));
-  assert.equal(arcs.length, 2);
+  const particleRects = environment.context.calls.filter(
+    ([method, , , width, height]) =>
+      method === 'fillRect' &&
+      width > 0 &&
+      width <= 5 &&
+      height > 0 &&
+      height <= 5,
+  );
 
-  environment.context.calls.length = 0;
-  game.getState().elapsed = 1.1;
-  environment.runNextFrame(16);
-  texts = environment.context.calls
-    .filter(([method]) => method === 'fillText')
-    .map(([, text]) => text);
-  assert.ok(texts.includes('准备 2'));
-
-  environment.context.calls.length = 0;
-  game.getState().elapsed = 2.1;
-  environment.runNextFrame(32);
-  texts = environment.context.calls
-    .filter(([method]) => method === 'fillText')
-    .map(([, text]) => text);
-  assert.ok(texts.includes('准备 1'));
-
-  environment.context.calls.length = 0;
-  game.getState().elapsed = 3;
-  environment.runNextFrame(48);
-  texts = environment.context.calls
-    .filter(([method]) => method === 'fillText')
-    .map(([, text]) => text);
-  arcs = environment.context.calls.filter(([method]) => method === 'arc');
+  assert.ok(texts.includes('0 秒'));
   assert.equal(
-    texts.some((text) => text.startsWith('准备 ')),
+    texts.some((text) => text.startsWith(`准${'备'}`)),
     false,
   );
+  assert.equal(game.getState().player.x, 400);
+  assert.equal(game.getState().player.y, 300);
+  assert.deepEqual(game.getState().enemies, []);
   assert.equal(arcs.length, 1);
+  assert.ok(particleRects.length > 0, '应绘制由数字像素采样得到的粒子');
 });
 
-test('正常 Canvas 桩可执行空闲、运行与结束渲染路径', async () => {
+test('倒计时末段在 5.2 秒后逐步形成外层保护罩', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  environment.runNextFrame(0);
+  environment.context.calls.length = 0;
+  game.getState().countdownElapsed = 5.19;
+  environment.runNextFrame(0);
+  assert.equal(
+    environment.context.calls.filter(([method]) => method === 'arc').length,
+    1,
+  );
+
+  environment.context.calls.length = 0;
+  game.getState().countdownElapsed = 5.4;
+  environment.runNextFrame(0);
+  assert.equal(
+    environment.context.calls.filter(([method]) => method === 'arc').length,
+    2,
+  );
+});
+
+test('倒计时边界切入运行且下一正式步才开始累计生存时间', () => {
+  const environment = createEnvironment();
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  environment.runNextFrame(1_000);
+  game.getState().countdownElapsed = COUNTDOWN_SECONDS - FIXED_STEP;
+  game.getState().accumulator = 0;
+  environment.context.calls.length = 0;
+  environment.runNextFrame(1_000);
+  environment.context.calls.length = 0;
+  environment.runNextFrame(1_017);
+
+  const state = game.getState();
+  const particleRects = environment.context.calls.filter(
+    ([method, , , width, height]) =>
+      method === 'fillRect' &&
+      width > 0 &&
+      width <= 5 &&
+      height > 0 &&
+      height <= 5,
+  );
+  assert.equal(state.phase, 'running');
+  assert.equal(state.elapsed, 0);
+  assert.equal(environment.status.textContent, '游戏开始');
+  assert.equal(particleRects.length, 0);
+  assert.equal(
+    environment.context.calls.filter(([method]) => method === 'arc').length,
+    2,
+  );
+
+  environment.runNextFrame(1_034);
+  assert.equal(state.elapsed, FIXED_STEP);
+});
+
+test('离屏 Canvas 不可用时使用实心数字并仍可进入运行阶段', () => {
+  const environment = createEnvironment({ offscreenAvailable: false });
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  assert.doesNotThrow(() => environment.runNextFrame(1_000));
+  assert.ok(
+    environment.context.calls.some(
+      ([method, text]) => method === 'fillText' && text === '3',
+    ),
+  );
+
+  game.getState().countdownElapsed = COUNTDOWN_SECONDS - FIXED_STEP;
+  game.getState().accumulator = 0;
+  environment.runNextFrame(1_000);
+  assert.doesNotThrow(() => environment.runNextFrame(1_017));
+  assert.equal(game.getState().phase, 'running');
+});
+
+test('正常 Canvas 桩可执行空闲、倒计时、运行与结束渲染路径', async () => {
   const environment = createEnvironment();
   const game = createBrowserGame({
     windowObject: environment.windowObject,
@@ -703,8 +877,11 @@ test('正常 Canvas 桩可执行空闲、运行与结束渲染路径', async () 
   assert.doesNotThrow(() => environment.runNextFrame(0));
   environment.canvas.dispatch('pointerdown', pointerEvent());
   assert.doesNotThrow(() => environment.runNextFrame(17));
+  game.getState().phase = 'running';
+  game.getState().countdownElapsed = COUNTDOWN_SECONDS;
+  assert.doesNotThrow(() => environment.runNextFrame(34));
   game.getState().phase = 'gameover';
   game.getState().finalScore = 1;
-  assert.doesNotThrow(() => environment.runNextFrame(34));
+  assert.doesNotThrow(() => environment.runNextFrame(51));
   assert.ok(environment.context.calls.length > 0);
 });
