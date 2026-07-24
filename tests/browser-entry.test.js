@@ -10,6 +10,7 @@ import {
 
 const rootUrl = new URL('../', import.meta.url);
 const htmlUrl = new URL('index.html', rootUrl);
+const gameUrl = new URL('src/game.js', rootUrl);
 const MAX_BACKING_STORE_SIDE = 8_192;
 const MAX_BACKING_STORE_PIXELS = 16_777_216;
 
@@ -51,11 +52,22 @@ function createStorage({ throwOnGet = false, throwOnSet = false } = {}) {
 
 function createContext() {
   const calls = [];
+  const arcSnapshots = [];
   const context = {
     calls,
+    arcSnapshots,
     globalAlpha: 1,
     imageSmoothingEnabled: false,
     imageSmoothingQuality: 'low',
+    arc(x, y, radius, startAngle, endAngle) {
+      calls.push(['arc', x, y, radius, startAngle, endAngle]);
+      arcSnapshots.push({
+        x,
+        y,
+        radius,
+        globalAlpha: this.globalAlpha,
+      });
+    },
   };
 
   for (const method of [
@@ -67,7 +79,6 @@ function createContext() {
     'moveTo',
     'lineTo',
     'stroke',
-    'arc',
     'fill',
     'translate',
     'scale',
@@ -771,7 +782,7 @@ test('倒计时初帧绘制粒子数字、居中玩家和常驻内层光晕', ()
 
   assert.ok(texts.includes('0 秒'));
   assert.equal(
-    texts.some((text) => text.startsWith(`准${'备'}`)),
+    texts.some((text) => text.startsWith('准备')),
     false,
   );
   assert.equal(game.getState().player.x, 400);
@@ -787,24 +798,62 @@ test('倒计时末段在 5.2 秒后逐步形成外层保护罩', () => {
     windowObject: environment.windowObject,
     documentObject: environment.documentObject,
   });
+  const originalDateNow = Date.now;
 
-  game.beginGame();
-  environment.runNextFrame(0);
-  environment.context.calls.length = 0;
-  game.getState().countdownElapsed = 5.19;
-  environment.runNextFrame(0);
-  assert.equal(
-    environment.context.calls.filter(([method]) => method === 'arc').length,
-    1,
-  );
+  try {
+    Date.now = () => 0;
+    game.beginGame();
+    environment.runNextFrame(0);
 
-  environment.context.calls.length = 0;
-  game.getState().countdownElapsed = 5.4;
-  environment.runNextFrame(0);
-  assert.equal(
-    environment.context.calls.filter(([method]) => method === 'arc').length,
-    2,
-  );
+    function drawAt(countdownElapsed) {
+      environment.context.calls.length = 0;
+      environment.context.arcSnapshots.length = 0;
+      game.getState().countdownElapsed = countdownElapsed;
+      environment.runNextFrame(0);
+      return [...environment.context.arcSnapshots];
+    }
+
+    const playerSize = game.getState().player.size;
+    const outerRadiusThreshold = playerSize * 1.6;
+    const beforeShield = drawAt(5.19);
+    const formingShield = drawAt(5.4);
+    const nearlyCompleteShield = drawAt(5.55);
+    const formingOuter = formingShield.find(
+      ({ radius }) => radius > outerRadiusThreshold,
+    );
+    const nearlyCompleteOuter = nearlyCompleteShield.find(
+      ({ radius }) => radius > outerRadiusThreshold,
+    );
+
+    assert.deepEqual(beforeShield, [{
+      x: game.getState().player.x,
+      y: game.getState().player.y,
+      radius: outerRadiusThreshold,
+      globalAlpha: 1,
+    }]);
+    assert.ok(formingOuter);
+    assert.ok(nearlyCompleteOuter);
+    assert.ok(Number.isFinite(formingOuter.radius));
+    assert.ok(Number.isFinite(nearlyCompleteOuter.radius));
+    assert.ok(Number.isFinite(formingOuter.globalAlpha));
+    assert.ok(Number.isFinite(nearlyCompleteOuter.globalAlpha));
+    assert.ok(formingOuter.globalAlpha > 0);
+    assert.ok(formingOuter.globalAlpha <= 1);
+    assert.ok(nearlyCompleteOuter.globalAlpha > 0);
+    assert.ok(nearlyCompleteOuter.globalAlpha <= 1);
+    assert.ok(nearlyCompleteOuter.radius > formingOuter.radius);
+    assert.ok(nearlyCompleteOuter.globalAlpha > formingOuter.globalAlpha);
+
+    for (const snapshots of [formingShield, nearlyCompleteShield]) {
+      const innerGlow = snapshots.find(
+        ({ radius }) => radius === outerRadiusThreshold,
+      );
+      assert.ok(innerGlow);
+      assert.equal(innerGlow.globalAlpha, 1);
+    }
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
 
 test('倒计时边界切入运行且下一正式步才开始累计生存时间', () => {
@@ -847,6 +896,34 @@ test('倒计时边界切入运行且下一正式步才开始累计生存时间',
 
 test('离屏 Canvas 不可用时使用实心数字并仍可进入运行阶段', () => {
   const environment = createEnvironment({ offscreenAvailable: false });
+  const game = createBrowserGame({
+    windowObject: environment.windowObject,
+    documentObject: environment.documentObject,
+  });
+
+  game.beginGame();
+  assert.doesNotThrow(() => environment.runNextFrame(1_000));
+  assert.ok(
+    environment.context.calls.some(
+      ([method, text]) => method === 'fillText' && text === '3',
+    ),
+  );
+
+  game.getState().countdownElapsed = COUNTDOWN_SECONDS - FIXED_STEP;
+  game.getState().accumulator = 0;
+  environment.runNextFrame(1_000);
+  assert.doesNotThrow(() => environment.runNextFrame(1_017));
+  assert.equal(game.getState().phase, 'running');
+});
+
+test('document 缺少 createElement 时使用实心数字并仍可进入运行阶段', async () => {
+  const source = await readFile(gameUrl, 'utf8');
+  assert.ok(
+    source.includes("documentObject.createElement?.('canvas')"),
+    '入口应以可选调用访问 document.createElement',
+  );
+  const environment = createEnvironment();
+  delete environment.documentObject.createElement;
   const game = createBrowserGame({
     windowObject: environment.windowObject,
     documentObject: environment.documentObject,
